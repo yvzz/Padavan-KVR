@@ -40,7 +40,25 @@ jobs:
         cd /opt/rt-n56u/toolchain-mipsel
         sh dl_toolchain.sh
         mkdir -p /opt/images/
-        
+
+        # 修复 ncurses-6.4.patch：GitHub mirror 的 ncurses 6.4 源码已把 shell 变量赋值加了双引号
+        # 旧 patch 上下文为无引号版本 → Hunk #1 FAILED at 43 → 整个 libs 编译失败
+        # 兜底重写为带双引号版本（与仓库内已修复的 patch 内容一致，双保险）
+        cat > /opt/rt-n56u/trunk/libs/libncurses/ncurses-6.4.patch <<'PATCH_EOF'
+        diff -rupw ncurses-6.4-orig/misc/run_tic.in ncurses-6.4/misc/run_tic.in
+        --- ncurses-6.4-orig/misc/run_tic.in	2020-02-12 17:50:22.000000000 +0800
+        +++ ncurses-6.4/misc/run_tic.in	2020-12-30 10:26:00.107716122 +0800
+        @@ -43,7 +43,7 @@ echo "** Building terminfo database, ple
+         #	make install.data
+
+         : "${suffix:=@EXEEXT@}"
+        -: "${DESTDIR:=@DESTDIR@}"
+        +#: "${DESTDIR:=@DESTDIR@}"
+         : "${prefix:=@prefix@}"
+         : "${exec_prefix:=@exec_prefix@}"
+         : "${bindir:=@bindir@}"
+        PATCH_EOF
+
         ##### 修改内存空间和 storage空间13m
         sed -i 's/SIZ=0x0400000/SIZ=0x0d00000/g' /opt/rt-n56u/trunk/configs/boards/R2100/kernel-3.4.x-5.0.config
         sed -i 's/size_etc="6M"/size_etc="13M"/g' /opt/rt-n56u/trunk/user/scripts/dev_init.sh
