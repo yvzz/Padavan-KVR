@@ -490,14 +490,17 @@ jobs:
         BUILD_EXIT=${PIPESTATUS[0]}
         set -e
         if [ $BUILD_EXIT -ne 0 ]; then
-          echo "::error::Build failed (exit $BUILD_EXIT). Error lines from build log:"
-          tail -80 /tmp/build.log | while IFS= read -r line; do echo "::error::$line"; done
-          # 把 build.log 推送到仓库，便于离线诊断（利用 contents: write 权限）
+          echo "::error::Build failed (exit $BUILD_EXIT)"
+          # 用 printf 逐行输出，避免管道子 shell 吞掉 workflow command
+          # 关键：把最后 60 行写成独立 annotation
+          tail -60 /tmp/build.log > /tmp/build.tail
+          while IFS= read -r line; do printf '::error::%s\n' "$line"; done < /tmp/build.tail
+          # 把 build.log 推送到仓库 build-log 分支（用 secrets.GITHUB_TOKEN，run 步骤无 GITHUB_TOKEN 环境变量）
           mkdir -p /tmp/logrepo && cd /tmp/logrepo
           git init -q && git config user.email "ci@github" && git config user.name "ci"
           cp /tmp/build.log ./build.log
           git add build.log && git commit -q -m "build log $(date +%s)" || true
-          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:build-log || true
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:build-log || true
           exit $BUILD_EXIT
         fi
         sudo mv -f images/*.trx /opt/images/
