@@ -491,9 +491,13 @@ jobs:
         set -e
         if [ $BUILD_EXIT -ne 0 ]; then
           echo "::error::Build failed (exit $BUILD_EXIT). Error lines from build log:"
-          grep -nE "Error [0-9]|FAILED|: error:|: cannot|: No such|not found|undefined reference|No rule to make|make\\[.*\\]\\.\\*\\.\\* Error" /tmp/build.log | tail -10 | while IFS= read -r line; do echo "::error::$line"; done
-          echo "::error::--- Last 5 lines of build log ---"
-          tail -5 /tmp/build.log | while IFS= read -r line; do echo "::error::$line"; done
+          tail -80 /tmp/build.log | while IFS= read -r line; do echo "::error::$line"; done
+          # 把 build.log 推送到仓库，便于离线诊断（利用 contents: write 权限）
+          mkdir -p /tmp/logrepo && cd /tmp/logrepo
+          git init -q && git config user.email "ci@github" && git config user.name "ci"
+          cp /tmp/build.log ./build.log
+          git add build.log && git commit -q -m "build log $(date +%s)" || true
+          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:build-log || true
           exit $BUILD_EXIT
         fi
         sudo mv -f images/*.trx /opt/images/
@@ -524,3 +528,4 @@ jobs:
            
         tag_name: ${{ env.tag }}
         files: /opt/images/*
+
