@@ -67,6 +67,15 @@ jobs:
           /opt/rt-n56u/trunk/libs/libssl/Makefile \
           /opt/rt-n56u/trunk/libs/libcurl/Makefile
 
+        # 修复 toolchain sysroot 的 sys/random.h 缺少 #include <stddef.h>
+        # 根因: toolchain-mipsel v1.1 预编译 sysroot 的 sys/random.h 第 27 行用 size_t
+        # 但没 include <stddef.h>，编译 OPENSSH getrandom.o 时报 unknown type name 'size_t'
+        # 仓库源码版 libc/uClibc-ng-1.0.38/.../sys/random.h 第 8 行有 #include <stddef.h>
+        SYSROOT_INC=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/mipsel-linux-uclibc/sysroot/usr/include
+        if [ -f "$SYSROOT_INC/sys/random.h" ] && ! grep -q "stddef.h" "$SYSROOT_INC/sys/random.h"; then
+          sed -i '/#include <features.h>/a #include <stddef.h>' "$SYSROOT_INC/sys/random.h"
+        fi
+
         ##### 修改内存空间和 storage空间13m
         sed -i 's/SIZ=0x0400000/SIZ=0x0d00000/g' /opt/rt-n56u/trunk/configs/boards/R2100/kernel-3.4.x-5.0.config
         sed -i 's/size_etc="6M"/size_etc="13M"/g' /opt/rt-n56u/trunk/user/scripts/dev_init.sh
