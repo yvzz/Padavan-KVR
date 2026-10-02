@@ -469,8 +469,8 @@ jobs:
         BUILD_EXIT=${PIPESTATUS[0]}
         set -e
         if [ $BUILD_EXIT -ne 0 ]; then
-          echo "::error::Build failed (exit $BUILD_EXIT). Last 50 lines of build log:"
-          tail -50 /tmp/build.log | while IFS= read -r line; do echo "  $line"; done
+          echo "::error::Build failed (exit $BUILD_EXIT). Last 30 lines of build log (each line as annotation):"
+          tail -30 /tmp/build.log | while IFS= read -r line; do echo "::error::$line"; done
           exit $BUILD_EXIT
         fi
         sudo mv -f images/*.trx /opt/images/
