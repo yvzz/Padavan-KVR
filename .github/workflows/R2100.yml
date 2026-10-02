@@ -76,6 +76,23 @@ jobs:
           sed -i '/#include <features.h>/a #include <stddef.h>' "$SYSROOT_INC/sys/random.h"
         fi
 
+        # 修复 openssh Makefile：恢复 extract_test 依赖（同 libssl/libcurl 潜伏 bug）
+        # all: config_test 跳过 extract_test -> 若 openssh-9.0p1 目录不存在 -> cd 失败
+        # -> autoreconf 在父目录运行 -> 找不到 configure.ac -> ./configure: not found
+        sed -i 's/^all: config_test/all: download_test extract_test config_test/' \
+          /opt/rt-n56u/trunk/user/openssh/Makefile
+
+        # 诊断 + 兜底：确保 openssh-9.0p1 目录存在且含 configure.ac
+        # 根因待查：git clone --depth=1 后 openssh-9.0p1/ 目录可能不存在（820 个文件应被 checkout）
+        # 兜底：如果目录不存在或缺 configure.ac，从仓库内的 openssh-9.0p1.tar.gz 解压
+        OPENSSH_DIR=/opt/rt-n56u/trunk/user/openssh/openssh-9.0p1
+        if [ ! -f "$OPENSSH_DIR/configure.ac" ]; then
+          echo "::warning::openssh-9.0p1/configure.ac 不存在，从 tar.gz 解压"
+          rm -rf "$OPENSSH_DIR"
+          tar xzf /opt/rt-n56u/trunk/user/openssh/openssh-9.0p1.tar.gz -C /opt/rt-n56u/trunk/user/openssh/
+          ls -la "$OPENSSH_DIR/configure.ac" 2>&1 || echo "::error::解压后仍无 configure.ac"
+        fi
+
         ##### 修改内存空间和 storage空间13m
         sed -i 's/SIZ=0x0400000/SIZ=0x0d00000/g' /opt/rt-n56u/trunk/configs/boards/R2100/kernel-3.4.x-5.0.config
         sed -i 's/size_etc="6M"/size_etc="13M"/g' /opt/rt-n56u/trunk/user/scripts/dev_init.sh
