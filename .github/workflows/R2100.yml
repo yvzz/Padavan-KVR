@@ -469,8 +469,10 @@ jobs:
         BUILD_EXIT=${PIPESTATUS[0]}
         set -e
         if [ $BUILD_EXIT -ne 0 ]; then
-          echo "::error::Build failed (exit $BUILD_EXIT). Last 30 lines of build log (each line as annotation):"
-          tail -30 /tmp/build.log | while IFS= read -r line; do echo "::error::$line"; done
+          echo "::error::Build failed (exit $BUILD_EXIT). Error lines from build log:"
+          grep -nE "Error [0-9]|FAILED|: error:|: cannot|: No such|not found|undefined reference|No rule to make|make\\[.*\\]\\.\\*\\.\\* Error" /tmp/build.log | tail -10 | while IFS= read -r line; do echo "::error::$line"; done
+          echo "::error::--- Last 5 lines of build log ---"
+          tail -5 /tmp/build.log | while IFS= read -r line; do echo "::error::$line"; done
           exit $BUILD_EXIT
         fi
         sudo mv -f images/*.trx /opt/images/
@@ -483,6 +485,12 @@ jobs:
       with:
         name: R2100
         path: /opt/images
+    - name : Upload build log
+      uses: actions/upload-artifact@master
+      if: always()
+      with:
+        name: R2100-build-log
+        path: /tmp/build.log
 
     - name: Release
       uses: softprops/action-gh-release@v2
