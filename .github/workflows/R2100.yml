@@ -67,6 +67,11 @@ jobs:
           /opt/rt-n56u/trunk/libs/libssl/Makefile \
           /opt/rt-n56u/trunk/libs/libcurl/Makefile
 
+        # 修复 libcurl patch 路径：../no_docs_test.patch 指向 libs/ 但文件在 libcurl/ 内
+        # 根因：extract_test 里 patch -i ../no_docs_test.patch 找不到文件 → make 失败
+        sed -i 's#\.\./no_docs_test\.patch#no_docs_test.patch#' \
+          /opt/rt-n56u/trunk/libs/libcurl/Makefile
+
         ##### 修改内存空间和 storage空间13m
         sed -i 's/SIZ=0x0400000/SIZ=0x0d00000/g' /opt/rt-n56u/trunk/configs/boards/R2100/kernel-3.4.x-5.0.config
         sed -i 's/size_etc="6M"/size_etc="13M"/g' /opt/rt-n56u/trunk/user/scripts/dev_init.sh
