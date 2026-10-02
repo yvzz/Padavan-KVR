@@ -25,6 +25,7 @@ config_test:
 configure:
 	( cd $(SRC_NAME) ; \
 	./configure \
+		LDFLAGS="$(LDFLAGS) -latomic -lpthread" \
 		--prefix=/usr \
 		--disable-profiling \
 		--without-openssl \
@@ -41,5 +42,7 @@ clean:
 	rm -f config_done
 
 romfs:
+	$(STRIP) $(THISDIR)/$(SRC_NAME)/src/iperf3
 	$(ROMFSINST) -p +x $(THISDIR)/$(SRC_NAME)/src/iperf3 /usr/bin/iperf3
+	cp -fP $(CONFIG_CROSS_COMPILER_ROOT)/mipsel-linux-uclibc/sysroot/lib/libatomic.so* $(ROMFSDIR)/lib
 
