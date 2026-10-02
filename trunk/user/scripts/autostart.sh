@@ -9,11 +9,6 @@ logger -t "自动启动" "正在启动SmartDns"
 /usr/bin/smartdns.sh start
 fi
 
-if [ $(nvram get caddy_enable) = 1 ] ; then
-logger -t "自动启动" "正在启动文件管理"
-/usr/bin/caddy.sh start
-fi
-
 logger -t "自动启动" "正在检查路由是否已连接互联网！"
 count=0
 while :
