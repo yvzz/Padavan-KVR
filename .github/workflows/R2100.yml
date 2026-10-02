@@ -59,6 +59,14 @@ jobs:
          : "${bindir:=@bindir@}"
         PATCH_EOF
 
+        # 修复 libssl/libcurl Makefile：恢复 extract_test 依赖
+        # all: config_test 跳过了解压，导致 cd openssl-1.1.1t / cd curl-8.5.0 失败
+        # 根因：Makefile 把 all 改成只依赖 config_test，跳过 download_test + extract_test
+        # libssl/libcurl 的源码包已在仓库内，download_test 因文件已存在会跳过，extract_test 负责解压
+        sed -i 's/^all: config_test/all: download_test extract_test config_test/' \
+          /opt/rt-n56u/trunk/libs/libssl/Makefile \
+          /opt/rt-n56u/trunk/libs/libcurl/Makefile
+
         ##### 修改内存空间和 storage空间13m
         sed -i 's/SIZ=0x0400000/SIZ=0x0d00000/g' /opt/rt-n56u/trunk/configs/boards/R2100/kernel-3.4.x-5.0.config
         sed -i 's/size_etc="6M"/size_etc="13M"/g' /opt/rt-n56u/trunk/user/scripts/dev_init.sh
