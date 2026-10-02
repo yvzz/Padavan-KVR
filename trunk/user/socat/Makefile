@@ -1,5 +1,5 @@
-SRC_NAME = socat-1.8.0.0
-SRC_URL = http://www.dest-unreach.org/socat/download/socat-1.8.0.0.tar.bz2
+SRC_NAME = socat-1.8.0.3
+SRC_URL = http://www.dest-unreach.org/socat/download/socat-1.8.0.3.tar.bz2
 THISDIR = $(shell pwd)
 
 all: download_test extract_test config_test
@@ -7,7 +7,7 @@ all: download_test extract_test config_test
 
 download_test:
 	( if [ ! -f $(SRC_NAME).tar.bz2 ]; then \
-		wget -t5 --timeout=20 --no-check-certificate -O $(SRC_NAME).tar.gz $(SRC_URL); \
+		wget -t5 --timeout=20 --no-check-certificate -O $(SRC_NAME).tar.bz2 $(SRC_URL); \
 	fi )
 
 extract_test:
@@ -39,4 +39,5 @@ clean:
 	rm -f config_done
 
 romfs:
+	$(STRIP) $(THISDIR)/$(SRC_NAME)/socat
 	$(ROMFSINST) -p +x $(THISDIR)/$(SRC_NAME)/socat /usr/bin/socat
