@@ -464,7 +464,15 @@ jobs:
         
         #########################################################################################
         sudo ./clear_tree
-        sudo ./build_firmware_modify $TNAME 0
+        set +e
+        sudo ./build_firmware_modify $TNAME 0 2>&1 | tee /tmp/build.log
+        BUILD_EXIT=${PIPESTATUS[0]}
+        set -e
+        if [ $BUILD_EXIT -ne 0 ]; then
+          echo "::error::Build failed (exit $BUILD_EXIT). Last 50 lines of build log:"
+          tail -50 /tmp/build.log | while IFS= read -r line; do echo "  $line"; done
+          exit $BUILD_EXIT
+        fi
         sudo mv -f images/*.trx /opt/images/
         cp -f .config /opt/images/${TNAME}.config
         echo "build_time=$(date '+%Y年%m月%d日%H:%M:%S' | jq -sRr @uri)" >> $GITHUB_ENV
