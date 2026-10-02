@@ -82,6 +82,14 @@ jobs:
         sed -i 's/^all: config_test/all: download_test extract_test config_test/' \
           /opt/rt-n56u/trunk/user/openssh/Makefile
 
+        # 修复 openvpn Makefile（run #14 真实日志暴露的同类 bug）：
+        # 1) all: config_test 跳过 extract_test -> openvpn-2.5.9 目录未解压 -> cd 失败
+        # 2) extract_test 里 tar -xf ...tar.xz 但源码包是 .tar.gz（扩展名+解压参数都错）
+        sed -i 's/^all: config_test/all: extract_test config_test/' \
+          /opt/rt-n56u/trunk/user/openvpn/Makefile
+        sed -i 's/tar -xf \$(SRC_NAME)\.tar\.xz/tar -zxf $(SRC_NAME).tar.gz/' \
+          /opt/rt-n56u/trunk/user/openvpn/Makefile
+
         # 诊断 + 兜底：确保 openssh-9.0p1 目录存在且含 configure.ac
         # 根因待查：git clone --depth=1 后 openssh-9.0p1/ 目录可能不存在（820 个文件应被 checkout）
         # 兜底：如果目录不存在或缺 configure.ac，从仓库内的 openssh-9.0p1.tar.gz 解压
