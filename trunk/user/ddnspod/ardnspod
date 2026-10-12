@@ -296,47 +296,139 @@ arJsonRecordId() {
     echo "$1" | awk -F'"records":' '{print $2}' | grep -oE '"id": ?"?[0-9]+' | head -1 | grep -oE '[0-9]+'
 }
 
+# 取响应里的 info 段(很短), 用于判断这次查询到底看到了几条记录。
+# 排障必备: 之前的日志只截了原始响应前 200 字符, 被 domain 段占满,
+# 从来没看到过 records/info 的真实内容。
+# Args: jsonResponse
+arJsonInfo() {
+    local info
+    info=$(echo "$1" | tr -d '\n' | grep -oE '"info":\{[^}]*\}' | head -1)
+    [ -z "$info" ] && info='(无 info 段)'
+    echo "$info"
+}
+
+# 把 records 数组里的 记录名/类型/线路/值 摘成一行, 便于在系统日志里直接比对。
+# 空数组输出 (空)。
+# Args: jsonResponse
+arJsonRecordBrief() {
+    local brief
+    brief=$(echo "$1" | tr -d '\n' | awk -F'"records":' '{print $2}' \
+        | grep -oE '"(name|type|value|line)":"[^"]*"' | tr -d '"' | tr '\n' ' ')
+    if [ -z "$brief" ]; then
+        echo "(空)"
+    else
+        echo "$brief"
+    fi
+}
+
+# 按"记录名"挑 id, 不依赖 DNSPod 的 sub_domain 过滤。
+# 为什么需要: 实测 Record.List 带上 sub_domain/record_type 过滤会返回空 records,
+# 而 Record.Create 却认为同名记录已存在 —— 直接用全量记录在本地匹配, 绕开该过滤。
+# 记录名比较忽略大小写(DNS 主机记录本身不区分大小写)。
+# Args: jsonResponse recordName [recordType]
+arJsonPickRecordId() {
+    echo "$1" | tr -d '\n' | awk -F'"records":' '{print $2}' | awk -v want="$2" -v wtype="$3" '
+    {
+        n = split($0, seg, "[}]")
+        for (i = 1; i <= n; i++) {
+            id = ""; nm = ""; tp = ""
+            if (match(seg[i], /"id": *"?[0-9]+/)) { id = substr(seg[i], RSTART, RLENGTH); gsub(/[^0-9]/, "", id) }
+            if (match(seg[i], /"name":"[^"]*"/))  { nm = substr(seg[i], RSTART, RLENGTH); gsub(/.*"name":"|"$/, "", nm) }
+            if (match(seg[i], /"type":"[^"]*"/))  { tp = substr(seg[i], RSTART, RLENGTH); gsub(/.*"type":"|"$/, "", tp) }
+            if (id == "") continue
+            if (tolower(nm) != tolower(want)) continue
+            if (wtype != "" && tp != wtype) continue
+            print id
+            exit
+        }
+    }'
+}
+
+# 取某个记录名的现有类型(A/CNAME/...), 找不到输出空。
+# 用于识别"同名记录存在但类型冲突"(DNSPod 里 A 与 CNAME/URL 记录不可共存):
+# 这种情况下再 Create 只会回"已存在", 必须把真实原因报出来。
+# Args: jsonResponse recordName
+arJsonPickRecordType() {
+    echo "$1" | tr -d '\n' | awk -F'"records":' '{print $2}' | awk -v want="$2" '
+    {
+        n = split($0, seg, "[}]")
+        for (i = 1; i <= n; i++) {
+            nm = ""; tp = ""
+            if (match(seg[i], /"name":"[^"]*"/)) { nm = substr(seg[i], RSTART, RLENGTH); gsub(/.*"name":"|"$/, "", nm) }
+            if (match(seg[i], /"type":"[^"]*"/)) { tp = substr(seg[i], RSTART, RLENGTH); gsub(/.*"type":"|"$/, "", tp) }
+            if (nm == "") continue
+            if (tolower(nm) != tolower(want)) continue
+            print tp
+            exit
+        }
+    }'
+}
+
+# 分三轮查记录 id, 每轮绕开一种失败模式:
+#   轮 1: sub_domain + record_type + record_line_id=0  (与 Create 条件一致, 最快)
+#   轮 2: 只带 sub_domain, 本地按记录名+类型匹配       (绕开 line/type 过滤)
+#   轮 3: 拉全量记录, 本地按记录名+类型匹配            (绕开 sub_domain 过滤本身)
+# 命中返回 0 并把 id 放进全局 arFoundId。
+# 未命中返回 1, arFoundId 为空, 同时:
+#   全局 arListRs        = 最后一次的原始响应(供上层判断/打日志)
+#   全局 arListOtherType = 同名但类型不同的记录类型(没有则为空)
+# 注意: 必须直接调用(不能放 $(...) 里), 否则这里的全局变量回传不到调用方。
+# Args: domain subdomain recordType
+arDdnsFindId() {
+    local id
+    local sr=""
+
+    [ "$2" != "@" ] && [ -n "$2" ] && sr="&sub_domain=$2"
+    arFoundId=""
+    arListOtherType=""
+
+    arListRs=$(arDdnsApi "Record.List" "domain=$1${sr}&record_type=$3&record_line_id=0")
+    id=$(arJsonRecordId "$arListRs")
+    if [ "$id" -gt 0 ] 2>/dev/null ; then arFoundId="$id"; return 0; fi
+
+    arListRs=$(arDdnsApi "Record.List" "domain=$1${sr}")
+    id=$(arJsonPickRecordId "$arListRs" "$2" "$3")
+    if [ "$id" -gt 0 ] 2>/dev/null ; then arFoundId="$id"; return 0; fi
+
+    arListRs=$(arDdnsApi "Record.List" "domain=$1")
+    id=$(arJsonPickRecordId "$arListRs" "$2" "$3")
+    arListOtherType=$(arJsonPickRecordType "$arListRs" "$2")
+    if [ "$id" -gt 0 ] 2>/dev/null ; then arFoundId="$id"; return 0; fi
+
+    return 1
+}
+
 # Fetch Record Id
 # Args: domain subdomain recordType
 
 arDdnsLookup() {
 
     local errMsg
-
     local recordId
-    local recordRs
     local recordCd
 
-    # 必须 local 且先清空: 这个变量原本是全局的, 同一进程里连续更新多个域名时
-    # 会残留上一次的值, 导致把错误的 sub_domain 带进下一次查询。
-    local subDomainRule=""
-    if [ "$2" != "@" ] && [ -n "$2" ]; then
-        # No sub_domain for root domain
-        subDomainRule="&sub_domain=$2"
-    fi
-
-    # Get Record Id
-    # record_line_id=0 = 默认线路, 与 Create 用的 record_line_id=0 (默认) 对应.
-    # 不加这个参数时 DNSPod API 偶发返回空 records 数组(已知一致性坑), 导致
-    # Lookup 误判"记录不存在" -> Create 报"Record already exists" -> 死结.
-    # 按 line 过滤后与 Create 查询条件一致, 避免空数组误判.
-    # 轮 1: 按 line + type 精确过滤
-    recordRs=$(arDdnsApi "Record.List" "domain=$1${subDomainRule}&record_type=$3&record_line_id=0")
-    recordId=$(arJsonRecordId "$recordRs")
-    # 轮 2: 只按子域名过滤。DNSPod 的 line/type 过滤在部分账号/套餐上会漏返回记录,
-    # 此时放宽条件再查一次, 能救回"记录确实存在但精确查询查不到"的情况。
-    if ! [ "$recordId" -gt 0 ] 2>/dev/null ; then
-        recordRs=$(arDdnsApi "Record.List" "domain=$1${subDomainRule}")
-        recordId=$(arJsonRecordId "$recordRs")
-    fi
-    # DNSPod api code: "1"=调用成功(不代表查到了记录), 负数=鉴权/参数等真错误
-    recordCd=$(echo $recordRs | sed 's/.*{"code":"\([0-9-]*\)".*/\1/')
+    # 三轮查询(见 arDdnsFindId 注释), 结果响应留在 arListRs
+    arDdnsFindId "$1" "$2" "$3"
+    recordId="$arFoundId"
 
     if ! [ "$recordId" -gt 0 ] 2>/dev/null ;then
-        errMsg=$(echo $recordRs | sed 's/.*"message":"\([^\"]*\)".*/\1/')
+        # DNSPod api code: "1"=调用成功(不代表查到了记录), 负数=鉴权/参数等真错误
+        recordCd=$(echo $arListRs | sed 's/.*{"code":"\([0-9-]*\)".*/\1/')
+        errMsg=$(echo $arListRs | sed 's/.*"message":"\([^\"]*\)".*/\1/')
         arLog "> arDdnsLookup - $errMsg"
-        # 解析不出来时把原始响应打出来(截断), 否则"查不到/已存在"的死循环没法定位
-        arLog "> arDdnsLookup - raw: $(echo "$recordRs" | tr -d '\n' | cut -c1-200)"
+        # 打 info 段(记录总数)+ 记录名/类型/线路清单, 而不是把整段响应截 200 字符
+        # (前 200 字符全被 domain 段占满, 排障时等于没打)
+        arLog "> arDdnsLookup - $(arJsonInfo "$arListRs")"
+        arLog "> arDdnsLookup - records: $(arJsonRecordBrief "$arListRs")"
+        # 同名记录存在但类型冲突(DNSPod 里 A 与 CNAME/URL 记录不可共存):
+        # 再 Create 也只会回"已存在", 这里直接报出真实原因,
+        # 免得页面把 CNAME 冲突显示成误导性的"解析记录不存在"。
+        case "$arListOtherType" in
+        CNAME|*URL*|*url*)
+            arLog "> arDdnsLookup - error: 同名记录已存在(类型 $arListOtherType), 与 $3 冲突"
+            return 1
+            ;;
+        esac
         if [ $arIsCreateRecord -eq 1 ]; then
             # DNSPod 记录不存在有三种表现, 只认 message 会让"自动创建"永远走不到:
             #   1) message = "No records on the list"
@@ -347,7 +439,7 @@ arDdnsLookup() {
                 arLog "> arDdnsLookup - No records on the list"
                 return 2
             fi
-            if echo "$recordRs" | grep -q '"records":\[\]'; then
+            if echo "$arListRs" | grep -q '"records":\[\]'; then
                 arLog "> arDdnsLookup - No records on the list"
                 return 2
             fi
@@ -519,23 +611,21 @@ arDdnsCreate() {
     errMsg=$(echo $recordRs | sed 's/.*,"message":"\([^"]*\)".*/\1/')
     arLog "> arDdnsCreate - error: $errMsg"
 
-    # "Record already exists": Create 用 line 参数确认记录在, 但 Lookup 查不到
-    # (DNSPod API 在 List 不带 line 时偶发漏返回的已知坑).
-    # 按与 Create 一致的 line 重新查一次, 拿到真实 record_id 让调用方继续 update,
-    # 把 IP 同步成当前值. 返回 3 = "记录已存在, 已恢复 id, 调用方应继续 update".
+    # "Record already exists": Create 认为同名记录已存在, 但 Lookup 三轮都没找到 id。
+    # 用同一套三轮查询再找一次(此时 Create 已证明记录存在), 拿到真实 record_id 让
+    # 调用方继续 update, 把 IP 同步成当前值。
+    # 返回 3 = "记录已存在, 已恢复 id, 调用方应继续 update"。
     if echo "$errMsg" | grep -q "Record already exists"; then
-        # 先按精确条件查, 查不到再放宽(去掉 line/type 过滤)重试一次
-        recordRs=$(arDdnsApi "Record.List" "domain=$1&sub_domain=$2&record_type=$3&record_line_id=0")
-        recordId=$(arJsonRecordId "$recordRs")
-        if ! [ "$recordId" -gt 0 ] 2>/dev/null ; then
-            recordRs=$(arDdnsApi "Record.List" "domain=$1&sub_domain=$2")
-            recordId=$(arJsonRecordId "$recordRs")
-        fi
-        arLog "> arDdnsCreate - recovery raw: $(echo "$recordRs" | tr -d '\n' | cut -c1-200)"
+        arDdnsFindId "$1" "$2" "$3"
+        recordId="$arFoundId"
+        arLog "> arDdnsCreate - recovery $(arJsonInfo "$arListRs") records: $(arJsonRecordBrief "$arListRs")"
         if [ -n "$recordId" ] && [ "$recordId" -gt 0 ] 2>/dev/null; then
             arLog "> arDdnsCreate - record exists, recovered id: $recordId"
             echo "$recordId"
             return 3
+        fi
+        if [ -n "$arListOtherType" ]; then
+            arLog "> arDdnsCreate - error: 同名记录已存在(类型 $arListOtherType), 与 $3 冲突"
         fi
     fi
 

@@ -9,18 +9,27 @@ scriptfilepath=$(cd "$(dirname "$0")"; pwd)/$(basename $0)
 scriptpath=$(cd "$(dirname "$0")"; pwd)
 scriptname=$(basename $0)
 
+# 去掉 nvram 值里看不见的空白(网页里粘贴 token/域名/主机记录时很常见):
+# 前后空格、\r、UTF-8 的 NBSP(\302\240)。这些字符会原样进 DNSPod 的 API 参数,
+# 结果是 Record.List 的 sub_domain 过滤匹配不到已有记录(返回空 records),
+# 而 Record.Create 按规范化后的名字判定"记录已存在" —— 正是
+# "查不到 -> 创建报已存在" 死循环的成因之一, 所以在入口统一清掉。
+ddnspod_clean () {
+	echo "$1" | tr -d ' \t\r\n\302\240'
+}
+
 ddnspod_enable=`nvram get ddnspod_enable`
 [ -z $ddnspod_enable ] && ddnspod_enable=0 && nvram set ddnspod_enable=0
 
 if [ "$ddnspod_enable" != "0" ] ; then
 ddnspod_interval=`nvram get ddnspod_interval`
-ddnspod_token=`nvram get ddnspod_token`
-ddnspod_domain=`nvram get ddnspod_domain`
-ddnspod_name=`nvram get ddnspod_name`
-ddnspod_domain2=`nvram get ddnspod_domain2`
-ddnspod_name2=`nvram get ddnspod_name2`
-ddnspod_domain6=`nvram get ddnspod_domain6`
-ddnspod_name6=`nvram get ddnspod_name6`
+ddnspod_token=$(ddnspod_clean "`nvram get ddnspod_token`")
+ddnspod_domain=$(ddnspod_clean "`nvram get ddnspod_domain`")
+ddnspod_name=$(ddnspod_clean "`nvram get ddnspod_name`")
+ddnspod_domain2=$(ddnspod_clean "`nvram get ddnspod_domain2`")
+ddnspod_name2=$(ddnspod_clean "`nvram get ddnspod_name2`")
+ddnspod_domain6=$(ddnspod_clean "`nvram get ddnspod_domain6`")
+ddnspod_name6=$(ddnspod_clean "`nvram get ddnspod_name6`")
 
 if [ "$ddnspod_domain"x != "x" ] && [ "$ddnspod_name"x = "x" ] ; then
 	ddnspod_name="www"
@@ -201,7 +210,11 @@ case "$ddnspod_ret_out" in
 		# 记录不存在时自动创建成功, 原先会漏判为失败
 		nvram set ddnspod_last_act="`date "+%Y-%m-%d %H:%M:%S"`   创建记录成功 -> $2.$1" ;;
 	*)
-		# 失败时把 ardnspod 的具体报错直接写进状态, 免得只能去翻系统日志
+		# 失败时把 ardnspod 的具体报错直接写进状态, 免得只能去翻系统日志。
+		# 注意顺序: 先取显式 "error: xxx"(例如真实原因"同名记录已存在(类型 CNAME), 与 A 冲突"),
+		# 取不到才回退到"记录不存在"这类泛化文案, 否则真实原因会被泛化文案盖掉。
+		ddnspod_err="$(echo "$ddnspod_ret_out" | grep -o 'error: [^"]*' | head -n 1 | sed 's/error: //')"
+		if [ -z "$ddnspod_err" ] ; then
 		case "$ddnspod_ret_out" in
 			*"No records on the list"*|*"arDdnsLookup - Operation successful"*)
 				# DNSPod api 调用成功(code=1)却查不到记录 id, 语义是"该主机记录不存在",
@@ -213,6 +226,7 @@ case "$ddnspod_ret_out" in
 				[ -z "$ddnspod_err" ] && ddnspod_err="$(echo "$ddnspod_ret_out" | grep -v '^$' | tail -n 1)"
 				[ -z "$ddnspod_err" ] && ddnspod_err="未知错误" ;;
 		esac
+		fi
 		nvram set ddnspod_last_act="`date "+%Y-%m-%d %H:%M:%S"`   更新失败: $(echo "$ddnspod_err" | cut -c1-80)" ;;
 esac
 }
