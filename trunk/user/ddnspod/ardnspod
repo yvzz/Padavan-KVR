@@ -304,11 +304,14 @@ arJsonBare() {
 }
 
 # 只取 records 数组部分(丢掉 status/domain/info 段, 免得把 domain 的 id 当成记录 id),
-# 并把每条记录切成单独一行(记录之间一定是 "},{" )。
-# 找不到 records 数组时输出空 —— 上层按"没有记录"处理, 不会退化成匹配 domain 的 id。
+# 并把每条记录切成单独一行。
+# 切行用 tr 把 "}" 换成换行(记录一定以 } 结尾), 而不是 sed 的 s/},{/}\n{/g ——
+# 设备上已被验证能用的只有 tr 的 \n 转义和 sed 的匹配段, sed 替换段里的 \n 属于扩展,
+# 这次踩的坑就是"用了没在设备上验证过的写法"。
+# 末尾用 grep ':' 丢掉数组首尾残留的 [ ] 这类没有字段的行(空数组时正好得到空串)。
 # Args: jsonResponse
 arJsonRecords() {
-    arJsonBare "$1" | sed -n 's/.*records:\[/[/p' | sed 's/},{/}\n{/g' | grep -v '^\[\]'
+    arJsonBare "$1" | sed -n 's/.*records:\[/[/p' | tr '}' '\n' | grep ':'
 }
 
 # 取一条记录里某个字段的值(字段名: id/name/type/line/value)。
