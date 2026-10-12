@@ -423,9 +423,7 @@ struct nvram_pair router_defaults[] = {
 	/*github下载加速源(留空=直连官方, 不启用任何第三方加速)*/
 	{ "github_proxy", "" },
 
-	/*国内镜像仓库基地址(如 Gitee/对象存储), 留空=不使用镜像*/
-	{ "mirror_url", "" },
-	
+
 #if defined(APP_KOOLPROXY)
 	/* koolproxy AD */
 	{ "koolproxy_enable", "0"},

@@ -23,15 +23,14 @@ et_extra_args="$(nvram get easytier_extra_args)"
 [ -z "$et_web_api" ] && et_web_port=11211
 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 github_proxys="$(nvram get github_proxy)"
-mirror_url="$(nvram get mirror_url)"
-# 国内镜像仓库(如 Gitee/对象存储): 填"基地址", 脚本按"基地址+GitHub路径"拼 URL,
-# 与加速代理的"前缀+完整GitHub URL"模式不同。留空=不使用镜像。
+# 国内镜像仓库(Gitee/对象存储)按"基地址+GitHub路径"拼 URL,
+# 与加速代理的"前缀+完整GitHub URL"模式不同。
 # EasyTier 上游在国内 Gitee 同步了 release(easytier/EasyTier), 路径与 GitHub 完全一致,
 # 且 Gitee 对 owner 大小写不敏感(实测 /EasyTier/EasyTier/... 同样返回 200),
 # 因此把基地址换成 https://gitee.com/ 即可复用同一条路径, 无需任何目录改造。
 # 实测 9.4MB 约 4.6 秒(2MB/s), 远快于 GitHub 直连。
-# 顺序: 用户自定义镜像 -> 官方 Gitee 镜像 -> 加速代理 -> 直连, 404 由前置探测秒跳过。
-gh_mirrors="$mirror_url https://gitee.com/"
+# 顺序: 官方 Gitee 镜像 -> 加速代理 -> 直连, 404 由前置探测秒跳过。
+gh_mirrors="https://gitee.com/"
 github_proxys="$gh_mirrors $github_proxys"
 # 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
 # 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
@@ -291,7 +290,7 @@ dowload_et_official() {
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
 	zip_name="easytier-linux-mipsel-${tag}.zip"
 	for proxy in $github_proxys ; do
-	# 镜像仓库=基地址+GitHub路径; 加速代理=前缀+完整GitHub URL; DIRECT=直连
+	# 加速代理=前缀+完整GitHub URL; DIRECT=直连
 	gh_base=""
 	if [ "$proxy" = "DIRECT" ] ; then
 		gh_base="https://github.com/"
@@ -391,7 +390,7 @@ dowload_et_mirror() {
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
 	logg "开始下载镜像 https://github.com/lmq8267/EasyTier/releases/download/${tag}/easytier-mipsel-linux-muslsf.tar.gz"
 	for proxy in $github_proxys ; do
-	# 镜像仓库=基地址+GitHub路径; 加速代理=前缀+完整GitHub URL; DIRECT=直连
+	# 加速代理=前缀+完整GitHub URL; DIRECT=直连
 	gh_base=""
 	if [ "$proxy" = "DIRECT" ] ; then
 		gh_base="https://github.com/"
@@ -523,7 +522,7 @@ dowload_web() {
 	[ ! -d "$webbin_path" ] && mkdir -p "$webbin_path"
 	logg "开始下载 https://github.com/lmq8267/EasyTier/releases/download/${tag}/easytier-mipsel-linux-muslsf.tar.gz"
 	for proxy in $github_proxys ; do
-	# 镜像仓库=基地址+GitHub路径; 加速代理=前缀+完整GitHub URL; DIRECT=直连
+	# 加速代理=前缀+完整GitHub URL; DIRECT=直连
 	gh_base=""
 	if [ "$proxy" = "DIRECT" ] ; then
 		gh_base="https://github.com/"

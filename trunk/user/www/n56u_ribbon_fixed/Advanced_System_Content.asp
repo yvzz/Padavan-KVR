@@ -519,15 +519,6 @@ function updateDateTime()
                                             </td>
                                         </tr>
                                         <tr>
-                                            <th>国内镜像仓库地址</th>
-                                            <td>
-                                                <input type="text" maxlength="512" class="input" size="40" name="mirror_url" id="mirror_url" style="width: 260px" value="<% nvram_get_x("","mirror_url"); %>" placeholder="https://gitee.com/用户名/仓库/raw/master/" />
-                                                <span class="label label-info">留空即可</span>
-                                                <br/><span style="color:#888;">填基地址即可, 脚本会自动拼上 GitHub 路径。Gitee 仓库请按 GitHub 的目录结构放置文件(如 <code>用户名/仓库名/releases/download/版本/文件名</code>), 且单个文件需小于 10MB(Gitee 免登录下载上限)。所有插件通用, 失败自动回退 GitHub。</span>
-                                                <br/><span style="color:#2b8a3e;">EasyTier 已内置官方 Gitee 镜像(easytier/EasyTier), 无需在此填写, 留空即自动优先走国内下载。</span>
-                                            </td>
-                                        </tr>
-                                        <tr>
                                             <th width="50%"><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,11,1)"><#LANHostConfig_x_ServerLogEnable_itemname#></a></th>
                                             <td>
                                                 <input type="text" maxlength="15" class="input" size="15" name="log_ipaddr" style="width: 145px" value="<% nvram_get_x("", "log_ipaddr"); %>" onKeyPress="return is_ipaddr(this,event);" />&nbsp;:

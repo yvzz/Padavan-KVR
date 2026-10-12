@@ -235,31 +235,25 @@ npc_ensure_bin()
 	logger -t "【NPC】" "开始下载 npc $npc_dl_ver 到 $NPC_BIN_DIR ..."
 	rm -f $NPC_BIN $NPC_BIN_DIR/npc.tar.gz
 
-	# 下载源: 用户在「系统管理 -> 系统设置」填的镜像/加速源优先, 最后直连兜底。
+	# 下载源: 用户在「系统管理 -> 系统设置」填的加速源优先, 最后直连兜底。
 	# 与 easytier.sh 等其他插件保持同一套机制(此前 npc.sh 是硬编码 github.com,
-	# 导致页面填的 mirror_url / github_proxy 对它完全无效)。
+	# 导致页面填的 github_proxy 对它完全无效)。
 	# 注意: nps 上游(nps 官方与 yisier 的 fork)在 Gitee 都没有同步仓库,
 	# 实测 gitee.com/{yisier,ehang-io,mirrors}/nps 与 nps/nps 均为 404,
-	# 所以这里不像 EasyTier 那样内置 Gitee, 只认用户自定义镜像。
+	# 所以这里不像 EasyTier 那样内置 Gitee 镜像。
 	# 实测 GitHub 直连约 5.4MB / 2.8s (1.9MB/s), 速度本身不是瓶颈。
-	npc_mirror_url=`nvram get mirror_url`
 	npc_proxys=`nvram get github_proxy`
-	npc_mirrors="$npc_mirror_url"
-	npc_proxys="$npc_mirrors $npc_proxys DIRECT"
+	npc_proxys="$npc_proxys DIRECT"
 	# 诊断用: 打印本次实际生效的源(值全部来自 nvram, 页面留空则只剩 DIRECT)。
 	# 若这里出现未在页面填写过的源, 说明被「系统设置 -> 自定义脚本」里的 nvram set 写回了。
 	logger -t "【NPC】" "下载源列表: $npc_proxys"
 
 	for npc_proxy in $npc_proxys ; do
 		# 镜像仓库 = 基地址 + GitHub 路径; 加速代理 = 前缀 + 完整 GitHub URL; DIRECT = 直连
-		npc_base=""
 		if [ "$npc_proxy" = "DIRECT" ] ; then
 			npc_base="https://github.com/"
 		else
-			for _m in $npc_mirrors ; do
-				[ "$npc_proxy" = "$_m" ] && { npc_base="$_m"; break; }
-			done
-			[ -z "$npc_base" ] && npc_base="${npc_proxy}https://github.com/"
+			npc_base="${npc_proxy}https://github.com/"
 		fi
 		npc_dl "${npc_base}${NPC_REPO}/releases/download/${npc_dl_ver}/${NPC_TARBALL}" "$NPC_BIN_DIR/npc.tar.gz"
 		[ -s "$NPC_BIN_DIR/npc.tar.gz" ] && break

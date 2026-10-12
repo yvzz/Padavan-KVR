@@ -29,11 +29,6 @@ vntcli_disable_relay="$(nvram get vntcli_disable_relay)"
 
 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 github_proxys="$(nvram get github_proxy)"
-mirror_url="$(nvram get mirror_url)"
-# 国内镜像仓库(如 Gitee/对象存储): 填"基地址", 脚本按"基地址+GitHub路径"拼 URL,
-# 与加速代理的"前缀+完整GitHub URL"模式不同。留空=不使用镜像。
-# 配置了就插到最前面优先尝试, 失败自动回退 GitHub/加速代理。
-[ -n "$mirror_url" ] && github_proxys="$mirror_url $github_proxys"
 # 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
 # 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
 # 循环末尾的 DIRECT 哨兵保证自定义源失效时仍会直连重试一次。
@@ -105,11 +100,9 @@ dowload_vntcli() {
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
 	logger -t "【VNT客户端】" "开始下载 https://github.com/lmq8267/vnt-cli/releases/download/${tag}/vnt-cli_mipsel-unknown-linux-musl 到 $VNTCLI"
 	for proxy in $github_proxys DIRECT ; do
-	# 镜像仓库=基地址+GitHub路径; 加速代理=前缀+完整GitHub URL; DIRECT=直连
+	# 加速代理=前缀+完整GitHub URL; DIRECT=直连
 	if [ "$proxy" = "DIRECT" ] ; then
 		gh_base="https://github.com/"
-	elif [ -n "$mirror_url" ] && [ "$proxy" = "$mirror_url" ] ; then
-		gh_base="$mirror_url"
 	else
 		gh_base="${proxy}https://github.com/"
 	fi

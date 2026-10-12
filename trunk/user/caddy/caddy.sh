@@ -10,11 +10,6 @@ caddyf_wan_port=`nvram get caddyf_wan_port`
 caddyw_wan_port=`nvram get caddyw_wan_port`
 caddy_wip6=`nvram get caddy_wip6`
 github_proxys="$(nvram get github_proxy)"
-mirror_url="$(nvram get mirror_url)"
-# 国内镜像仓库(如 Gitee/对象存储): 填"基地址", 脚本按"基地址+GitHub路径"拼 URL,
-# 与加速代理的"前缀+完整GitHub URL"模式不同。留空=不使用镜像。
-# 配置了就插到最前面优先尝试, 失败自动回退 GitHub/加速代理。
-[ -n "$mirror_url" ] && github_proxys="$mirror_url $github_proxys"
 # 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
 # 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
 # 循环末尾的 DIRECT 哨兵保证自定义源失效时仍会直连重试一次。
@@ -57,11 +52,9 @@ caddy_dl() {
        if [ ! -f "$caddy_dir" ] || [[ "$($caddy_dir -h 2>&1 | wc -l)" -lt 2 ]] ; then
 		logger -t "【caddy】" "找不到caddy_filebrowser文件，下载caddy_filebrowser程序"
 		for proxy in $github_proxys DIRECT ; do
-		# 镜像仓库=基地址+GitHub路径; 加速代理=前缀+完整GitHub URL; DIRECT=直连
+		# 加速代理=前缀+完整GitHub URL; DIRECT=直连
 		if [ "$proxy" = "DIRECT" ] ; then
 			gh_base="https://github.com/"
-		elif [ -n "$mirror_url" ] && [ "$proxy" = "$mirror_url" ] ; then
-			gh_base="$mirror_url"
 		else
 			gh_base="${proxy}https://github.com/"
 		fi
@@ -105,11 +98,9 @@ caddy_dl2() {
         	fi
 		[ -z "$tag" ] && logger -t "【caddy】" "无法获取最新版本,使用 v2.8.4" && tag="v2.8.4"
 		for proxy in $github_proxys DIRECT ; do
-		# 镜像仓库=基地址+GitHub路径; 加速代理=前缀+完整GitHub URL; DIRECT=直连
+		# 加速代理=前缀+完整GitHub URL; DIRECT=直连
 		if [ "$proxy" = "DIRECT" ] ; then
 			gh_base="https://github.com/"
-		elif [ -n "$mirror_url" ] && [ "$proxy" = "$mirror_url" ] ; then
-			gh_base="$mirror_url"
 		else
 			gh_base="${proxy}https://github.com/"
 		fi

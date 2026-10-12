@@ -300,7 +300,6 @@
 			{"reboot_schedule_enable", "", NULL, FALSE},
 			{"reboot_schedule", "", NULL, FALSE},
 			{"github_proxy", "", NULL, FALSE},
-			{"mirror_url", "", NULL, FALSE},
 			{"scripts.start_script.sh", "File", NULL, EVM_BLOCK_UNSAFE},
 			{"scripts.started_script.sh", "File", NULL, EVM_BLOCK_UNSAFE},
 			{"scripts.shutdown_script.sh", "File", NULL, EVM_BLOCK_UNSAFE},
