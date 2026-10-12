@@ -1074,6 +1074,7 @@
 			{"npc_crypt", "", NULL, EVM_RESTART_NPC},
 			{"npc_log_level", "", NULL, EVM_RESTART_NPC},
 			{"npc_version", "", NULL, EVM_RESTART_NPC},
+			{"npc_repo", "", NULL, EVM_RESTART_NPC},
 			{"scripts.npc_script.sh", "File", NULL, EVM_RESTART_NPC},
 			{0,0,0,0}
 	};

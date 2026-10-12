@@ -93,6 +93,7 @@ function change_npc_enable_bridge(mflag){
 	showhide_div("npc_crypt_tr", m);
 	showhide_div("npc_log_level_tr", m);
 	showhide_div("npc_version_tr", m);
+	showhide_div("npc_repo_tr", m);
 }
 
 function button_restartnpc() {
@@ -259,6 +260,14 @@ function button_restartnpc() {
 											<td style="border-top: 0 none;">
 												<input type="text" maxlength="30" class="input" size="20" id="npc_version" name="npc_version" placeholder="留空自动下载最新版" value="<% nvram_get_x("","npc_version"); %>" onkeypress="return is_string(this,event);" />
 												<span class="help-inline">留空 = 自动获取最新版；也可填指定版本如 v0.26.38</span>
+											</td>
+										</tr>
+										<tr id="npc_repo_tr" style="display:none;">
+											<th width="30%" style="border-top: 0 none;">自定义仓库:</th>
+											<td style="border-top: 0 none;">
+												<input type="text" maxlength="60" class="input" size="30" id="npc_repo" name="npc_repo" placeholder="留空用内置默认仓库" value="<% nvram_get_x("","npc_repo"); %>" onkeypress="return is_string(this,event);" />
+												<span class="help-inline">留空 = 内置仓库(yisier/nps, 停在 v0.26.39)</span>
+												<br/><span style="color:#888;">可填社区二次维护版 <code>djylb/nps</code>(版本已到 v0.34.x, 有 linux_mipsle_client.tar.gz)。<b>注意: 客户端版本须与服务端(nps)匹配</b>, 服务端若是 0.26.x 请保持留空。</span>
 											</td>
 										</tr>
 										<tr id="row_post_wan_script">

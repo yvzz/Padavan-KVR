@@ -1093,6 +1093,8 @@ struct nvram_pair router_defaults[] = {
 	{ "npc_crypt", "1" },
 	{ "npc_log_level", "3" },
 	{ "npc_version", "" },
+	/* 自定义 GitHub 仓库(留空 = 用内置默认仓库) */
+	{ "npc_repo", "" },
 #endif
 
 #if defined(APP_DDNSTO)

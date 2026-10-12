@@ -14,6 +14,17 @@
 NPC_REPO="yisier/nps"
 NPC_TARBALL="linux_mipsle_client.tar.gz"
 NPC_FALLBACK_VER="v0.26.38"
+# 页面「自定义仓库」可覆盖内置仓库。
+# nps 原仓库(ehang-io/nps)早已停更(停在 v0.26.x), 社区二次维护版 djylb/nps 仍在活跃
+# 更新(版本序列 v0.34.x), 且同样提供 linux_mipsle_client.tar.gz, 可直接填 djylb/nps。
+# 换仓库后版本序列不同, 内置回退版本 v0.26.38 不再适用 —— 置空, 由用户指定版本或靠
+# API 自动获取, 避免拼出 .../releases/download/v0.26.38/... 这种跨仓库的无效 URL。
+_npc_repo_cfg=`nvram get npc_repo`
+if [ -n "$_npc_repo_cfg" ]; then
+	NPC_REPO="$_npc_repo_cfg"
+	NPC_FALLBACK_VER=""
+	logger -t "【NPC】" "使用自定义仓库 $NPC_REPO"
+fi
 NPC_BIN_DIR=""		# 由 npc_pick_dir 决定
 NPC_BIN=""		# 二进制完整路径
 NPC_VER_FILE=""		# 版本标记文件
@@ -187,11 +198,16 @@ npc_ensure_bin()
 		npc_dl_ver="$npc_version"
 	else
 		npc_dl_ver=`npc_latest_ver`
-		if [ -z "$npc_dl_ver" ]; then
+		if [ -n "$npc_dl_ver" ]; then
+			logger -t "【NPC】" "使用最新版本 $npc_dl_ver"
+		elif [ -n "$NPC_FALLBACK_VER" ]; then
 			npc_dl_ver="$NPC_FALLBACK_VER"
 			logger -t "【NPC】" "获取最新版本失败, 使用 $npc_dl_ver"
 		else
-			logger -t "【NPC】" "使用最新版本 $npc_dl_ver"
+			# 自定义仓库: 版本序列与内置仓库不同, 没有可用的默认版本。
+			# 这里必须 return, 否则会拼出 .../releases/download//xxx 这种空版本 URL。
+			logger -t "【NPC】" "获取最新版本失败, 自定义仓库 $NPC_REPO 无默认版本, 请在页面「指定版本」填写(如 v0.34.7)"
+			return 1
 		fi
 	fi
 
