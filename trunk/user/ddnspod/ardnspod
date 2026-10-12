@@ -279,89 +279,172 @@ arDdnsApi() {
 
 }
 
-# 从 DNSPod 的 JSON 响应里提取记录 id。
-# 关键: id 可能是数字(16894439)也可能是字符串("16894439"), 视接口与版本而定。
-# 旧代码只用 sed 匹配 "id":"数字", 遇到数字格式会完全失配 —— recordId 变成整段
-# JSON 字符串, [ -gt 0 ] 判定失败, 于是被误判成"记录不存在"; 接着去 Create,
-# DNSPod 却回 "Record already exists", 而恢复用的 List 又是一样的解析, 再次失配,
-# 形成 "查不到 -> 创建报已存在 -> 死循环"。这里两种格式都兼容。
+# 下面的 JSON 解析只用 tr/sed/head/wc 的"固定字符串 + [0-9] 类 + * 量词",
+# 不用 awk, 不用 ? 量词, 也不用 grep -o。
+# 原因(实测, 路由器 busybox 环境): 之前的取 id 正则写成 `"id": ?"?[0-9]+`, 带 ? 量词,
+# 在设备上一律匹配不到; 而取 name/type/message/code 的那些不带 ? 的表达式却一直是好的 ——
+# 所以现场表现为"日志里能看到 类型 A, 却怎么也拿不到记录 id", 进而被误判成记录不存在。
+# 现在改成: JSON 压成裸形式 -> 每条记录一行 -> 每个字段一行 -> 固定字符串精确比对。
+# 这几个函数可以用真实 API 响应直接跑回归(dnsapi.cn 的 Record.List 原始响应即可)。
+
+# 把 JSON 响应压成"裸形式":
+#   {  "id": "123",  "name":"ct" }   ->   {id:123,name:ct}
+# 好处: id 带不带引号(字符串/数字)、json 有没有被美化换行/冒号两侧有没有空格,
+#       都只对应一种匹配规则。数值之外的空白一律压掉(只影响排障显示, 不影响取值)。
+# Args: jsonResponse
+arJsonBare() {
+    echo "$1" | tr -d '\n\r\t' \
+        | sed -e 's/[ ]*:[ ]*/:/g' \
+              -e 's/[ ]*,[ ]*/,/g' \
+              -e 's/[ ]*{[ ]*/{/g' \
+              -e 's/[ ]*}[ ]*/}/g' \
+              -e 's/[ ]*\[[ ]*/[/g' \
+              -e 's/[ ]*][ ]*/]/g' \
+        | tr -d '"'
+}
+
+# 只取 records 数组部分(丢掉 status/domain/info 段, 免得把 domain 的 id 当成记录 id),
+# 并把每条记录切成单独一行(记录之间一定是 "},{" )。
+# 找不到 records 数组时输出空 —— 上层按"没有记录"处理, 不会退化成匹配 domain 的 id。
+# Args: jsonResponse
+arJsonRecords() {
+    arJsonBare "$1" | sed -n 's/.*records:\[/[/p' | sed 's/},{/}\n{/g' | grep -v '^\[\]'
+}
+
+# 取一条记录里某个字段的值(字段名: id/name/type/line/value)。
+# 做法: 行内的 { } , 都当分隔符换成换行, 于是每个字段独占一行, 再用锚定的固定串取值
+#       —— 不涉及任何正则元字符, 各平台行为完全一致。
+# Args: recordLine fieldName
+arRecordField() {
+    echo "$1" | tr '{,}' '\n\n\n' | sed -n "s/^$2:\(.*\)$/\1/p" | head -n 1
+}
+
+# 从一条记录里取 id(字段名是锚定的, 不会误取 line_id/domain_id)。
+# Args: recordLine
+arRecordId() {
+    arRecordField "$1" id
+}
+
+# records 数组里的记录条数(拿不到输出 0)。
+# Args: jsonResponse
+arJsonRecordCount() {
+    local recs
+    recs=$(arJsonRecords "$1")
+    [ -z "$recs" ] && { echo 0 ; return ; }
+    printf '%s\n' "$recs" | wc -l | tr -d ' '
+}
+
+# records 数组里第一条记录的 id(只在数组确定只有一条记录时使用, 不会张冠李戴)。
+# Args: jsonResponse
+arJsonFirstRecordId() {
+    local line
+    line=$(arJsonRecords "$1" | head -n 1)
+    [ -n "$line" ] && arRecordId "$line"
+}
+
+# records 数组里第一条记录的类型(配合"只有一条记录"的判断使用)。
+# Args: jsonResponse
+arJsonFirstRecordType() {
+    local line
+    line=$(arJsonRecords "$1" | head -n 1)
+    [ -n "$line" ] && arRecordField "$line" type
+}
+
+# 从响应里取第一个记录 id(Record.Create / Record.Info 的响应里, 第一个 id 就是记录 id)。
 # Args: jsonResponse
 arJsonId() {
-    echo "$1" | grep -oE '"id": ?"?[0-9]+' | head -1 | grep -oE '[0-9]+'
+    arJsonBare "$1" | tr '{,}' '\n\n\n' | sed -n 's/^id:\([0-9][0-9]*\).*$/\1/p' | head -n 1
 }
 
 # 同上, 但只取 records 数组内的第一个 id, 避免取到响应里 domain 的 id。
 # Args: jsonResponse
 arJsonRecordId() {
-    echo "$1" | awk -F'"records":' '{print $2}' | grep -oE '"id": ?"?[0-9]+' | head -1 | grep -oE '[0-9]+'
+    arJsonFirstRecordId "$1"
 }
 
-# 取响应里的 info 段(很短), 用于判断这次查询到底看到了几条记录。
-# 排障必备: 之前的日志只截了原始响应前 200 字符, 被 domain 段占满,
-# 从来没看到过 records/info 的真实内容。
+# 取响应里的 info 段(很短), 用来判断这次查询到底看到了几条记录。
+# 排障必备: 排障日志之前只截原始响应前 200 字符, 全被 domain 段占满, 等于没打。
 # Args: jsonResponse
 arJsonInfo() {
     local info
-    info=$(echo "$1" | tr -d '\n' | grep -oE '"info":\{[^}]*\}' | head -1)
+    info=$(arJsonBare "$1" | sed -n 's/.*\(info:{[^}]*}\).*/\1/p' | head -n 1)
     [ -z "$info" ] && info='(无 info 段)'
     echo "$info"
 }
 
-# 把 records 数组里的 记录名/类型/线路/值 摘成一行, 便于在系统日志里直接比对。
-# 空数组输出 (空)。
-# Args: jsonResponse
+# 排障用一行摘要: 记录条数 + 与目标同名的记录(名字/类型/线路/值) + 前 8 个主机记录名。
+# 有了它就能一眼看出"目标记录到底在不在 returned 列表里、类型是什么"。
+# Args: jsonResponse recordName
 arJsonRecordBrief() {
-    local brief
-    brief=$(echo "$1" | tr -d '\n' | awk -F'"records":' '{print $2}' \
-        | grep -oE '"(name|type|value|line)":"[^"]*"' | tr -d '"' | tr '\n' ' ')
-    if [ -z "$brief" ]; then
-        echo "(空)"
-    else
-        echo "$brief"
+    local recs cnt same names want
+
+    recs=$(arJsonRecords "$1")
+    if [ -z "$recs" ] ; then
+        echo "共 0 条(records 数组为空或未找到)"
+        return
     fi
+
+    want=$(echo "$2" | tr 'A-Z' 'a-z')
+    cnt=$(printf '%s\n' "$recs" | wc -l | tr -d ' ')
+    same=$(printf '%s\n' "$recs" | while read -r line ; do
+        n=$(arRecordField "$line" name | tr 'A-Z' 'a-z')
+        [ "$n" = "$want" ] || continue
+        echo "name:$(arRecordField "$line" name) type:$(arRecordField "$line" type) line:$(arRecordField "$line" line) value:$(arRecordField "$line" value)"
+    done | tr '\n' ' ')
+    [ -z "$same" ] && same="无"
+    names=$(printf '%s\n' "$recs" | while read -r line ; do arRecordField "$line" name ; done \
+        | head -n 8 | tr '\n' ' ')
+
+    echo "共 $cnt 条; 同名: $same; 前 8 个主机记录名: $names"
 }
 
-# 按"记录名"挑 id, 不依赖 DNSPod 的 sub_domain 过滤。
+# 按 主机记录名(+类型) 在 records 里挑 id, 不依赖 DNSPod 的服务端过滤。
 # 为什么需要: 实测 Record.List 带上 sub_domain/record_type 过滤会返回空 records,
 # 而 Record.Create 却认为同名记录已存在 —— 直接用全量记录在本地匹配, 绕开该过滤。
 # 记录名比较忽略大小写(DNS 主机记录本身不区分大小写)。
 # Args: jsonResponse recordName [recordType]
 arJsonPickRecordId() {
-    echo "$1" | tr -d '\n' | awk -F'"records":' '{print $2}' | awk -v want="$2" -v wtype="$3" '
-    {
-        n = split($0, seg, "[}]")
-        for (i = 1; i <= n; i++) {
-            id = ""; nm = ""; tp = ""
-            if (match(seg[i], /"id": *"?[0-9]+/)) { id = substr(seg[i], RSTART, RLENGTH); gsub(/[^0-9]/, "", id) }
-            if (match(seg[i], /"name":"[^"]*"/))  { nm = substr(seg[i], RSTART, RLENGTH); gsub(/.*"name":"|"$/, "", nm) }
-            if (match(seg[i], /"type":"[^"]*"/))  { tp = substr(seg[i], RSTART, RLENGTH); gsub(/.*"type":"|"$/, "", tp) }
-            if (id == "") continue
-            if (tolower(nm) != tolower(want)) continue
-            if (wtype != "" && tp != wtype) continue
-            print id
-            exit
-        }
-    }'
+    local recs cand line n t want
+
+    recs=$(arJsonRecords "$1")
+    [ -z "$recs" ] && return 0
+    want=$(echo "$2" | tr 'A-Z' 'a-z')
+
+    # 固定串粗筛(名字里的 . * 等不会被当成正则), 再逐行取字段精确比对
+    cand=$(echo "$recs" | grep -F -i -e "name:$2," -e "name:$2}")
+    [ -z "$cand" ] && return 0
+
+    echo "$cand" | while read -r line ; do
+        n=$(arRecordField "$line" name | tr 'A-Z' 'a-z')
+        [ "$n" = "$want" ] || continue
+        if [ -n "$3" ] ; then
+            t=$(arRecordField "$line" type | tr 'a-z' 'A-Z')
+            [ "$t" = "$(echo "$3" | tr 'a-z' 'A-Z')" ] || continue
+        fi
+        arRecordId "$line"
+        break
+    done
 }
 
-# 取某个记录名的现有类型(A/CNAME/...), 找不到输出空。
-# 用于识别"同名记录存在但类型冲突"(DNSPod 里 A 与 CNAME/URL 记录不可共存):
-# 这种情况下再 Create 只会回"已存在", 必须把真实原因报出来。
+# 取同名记录的现有类型(A/CNAME/...), 找不到输出空。
+# 用于区分"真的类型冲突"(DNSPod 里 A 与 CNAME/URL 记录不可共存)和"只是没解析出来":
+# 只有类型确实不同, 才该提示用户去 DNSPod 后台处理。
 # Args: jsonResponse recordName
 arJsonPickRecordType() {
-    echo "$1" | tr -d '\n' | awk -F'"records":' '{print $2}' | awk -v want="$2" '
-    {
-        n = split($0, seg, "[}]")
-        for (i = 1; i <= n; i++) {
-            nm = ""; tp = ""
-            if (match(seg[i], /"name":"[^"]*"/)) { nm = substr(seg[i], RSTART, RLENGTH); gsub(/.*"name":"|"$/, "", nm) }
-            if (match(seg[i], /"type":"[^"]*"/)) { tp = substr(seg[i], RSTART, RLENGTH); gsub(/.*"type":"|"$/, "", tp) }
-            if (nm == "") continue
-            if (tolower(nm) != tolower(want)) continue
-            print tp
-            exit
-        }
-    }'
+    local recs cand line n want
+
+    recs=$(arJsonRecords "$1")
+    [ -z "$recs" ] && return 0
+    want=$(echo "$2" | tr 'A-Z' 'a-z')
+    cand=$(echo "$recs" | grep -F -i -e "name:$2," -e "name:$2}")
+    [ -z "$cand" ] && return 0
+
+    echo "$cand" | while read -r line ; do
+        n=$(arRecordField "$line" name | tr 'A-Z' 'a-z')
+        [ "$n" = "$want" ] || continue
+        arRecordField "$line" type
+        break
+    done
 }
 
 # 分三轮查记录 id, 每轮绕开一种失败模式:
@@ -370,8 +453,8 @@ arJsonPickRecordType() {
 #   轮 3: 拉全量记录, 本地按记录名+类型匹配            (绕开 sub_domain 过滤本身)
 # 命中返回 0 并把 id 放进全局 arFoundId。
 # 未命中返回 1, arFoundId 为空, 同时:
-#   全局 arListRs        = 最后一次的原始响应(供上层判断/打日志)
-#   全局 arListOtherType = 同名但类型不同的记录类型(没有则为空)
+#   全局 arListRs        = 最后一次的原始响应(供上层打日志)
+#   全局 arListOtherType = 同名记录的现有类型(用于判断是不是真的类型冲突)
 # 注意: 必须直接调用(不能放 $(...) 里), 否则这里的全局变量回传不到调用方。
 # Args: domain subdomain recordType
 arDdnsFindId() {
@@ -382,18 +465,28 @@ arDdnsFindId() {
     arFoundId=""
     arListOtherType=""
 
+    # 轮 1: 服务端已按 sub_domain+record_type 过滤, 正常情况下一次命中。
     arListRs=$(arDdnsApi "Record.List" "domain=$1${sr}&record_type=$3&record_line_id=0")
-    id=$(arJsonRecordId "$arListRs")
-    if [ "$id" -gt 0 ] 2>/dev/null ; then arFoundId="$id"; return 0; fi
+    id=$(arJsonPickRecordId "$arListRs" "$2" "$3")
+    if [ -z "$id" ] && [ "$(arJsonRecordCount "$arListRs")" = "1" ] \
+        && [ "$(arJsonFirstRecordType "$arListRs")" = "$3" ] ; then
+        # 数组里恰好只有这一条记录, 且类型一致 —— 那它就是要找的那条, 名字写法/大小写
+        # 有出入时也能救回来。类型必须先核对: 否则会把同名不同型(CNAME/URL 等)的记录
+        # 当成目标, 那属于真实的类型冲突, 不能拿来更新。
+        id=$(arJsonFirstRecordId "$arListRs")
+    fi
+    if [ -n "$id" ] ; then arFoundId="$id" ; return 0 ; fi
 
+    # 轮 2: 只按子域名查(DNSPod 的 type/line 过滤在部分套餐上会漏返回记录)。
     arListRs=$(arDdnsApi "Record.List" "domain=$1${sr}")
     id=$(arJsonPickRecordId "$arListRs" "$2" "$3")
-    if [ "$id" -gt 0 ] 2>/dev/null ; then arFoundId="$id"; return 0; fi
+    if [ -n "$id" ] ; then arFoundId="$id" ; return 0 ; fi
 
+    # 轮 3: 拉全量记录, 完全绕开服务端过滤。
     arListRs=$(arDdnsApi "Record.List" "domain=$1")
     id=$(arJsonPickRecordId "$arListRs" "$2" "$3")
     arListOtherType=$(arJsonPickRecordType "$arListRs" "$2")
-    if [ "$id" -gt 0 ] 2>/dev/null ; then arFoundId="$id"; return 0; fi
+    if [ -n "$id" ] ; then arFoundId="$id" ; return 0 ; fi
 
     return 1
 }
@@ -411,24 +504,22 @@ arDdnsLookup() {
     arDdnsFindId "$1" "$2" "$3"
     recordId="$arFoundId"
 
-    if ! [ "$recordId" -gt 0 ] 2>/dev/null ;then
+    if [ -z "$recordId" ] ;then
         # DNSPod api code: "1"=调用成功(不代表查到了记录), 负数=鉴权/参数等真错误
         recordCd=$(echo $arListRs | sed 's/.*{"code":"\([0-9-]*\)".*/\1/')
         errMsg=$(echo $arListRs | sed 's/.*"message":"\([^\"]*\)".*/\1/')
         arLog "> arDdnsLookup - $errMsg"
-        # 打 info 段(记录总数)+ 记录名/类型/线路清单, 而不是把整段响应截 200 字符
+        # 打 info 段(记录总数)+ 记录条数/同名记录清单, 而不是把整段响应截 200 字符
         # (前 200 字符全被 domain 段占满, 排障时等于没打)
         arLog "> arDdnsLookup - $(arJsonInfo "$arListRs")"
-        arLog "> arDdnsLookup - records: $(arJsonRecordBrief "$arListRs")"
-        # 同名记录存在但类型冲突(DNSPod 里 A 与 CNAME/URL 记录不可共存):
-        # 再 Create 也只会回"已存在", 这里直接报出真实原因,
-        # 免得页面把 CNAME 冲突显示成误导性的"解析记录不存在"。
-        case "$arListOtherType" in
-        CNAME|*URL*|*url*)
+        arLog "> arDdnsLookup - $(arJsonRecordBrief "$arListRs" "$2")"
+        # 同名记录存在且类型与要写入的不同(A 与 CNAME/URL 在 DNSPod 里不能共存):
+        # 再 Create 也只会回"已存在", 这里直接报出真实原因, 免得页面把它显示成
+        # 误导性的"解析记录不存在"。注意必须比较类型, 否则同名同类型会被误报成冲突。
+        if [ -n "$arListOtherType" ] && [ "$arListOtherType" != "$3" ] ; then
             arLog "> arDdnsLookup - error: 同名记录已存在(类型 $arListOtherType), 与 $3 冲突"
             return 1
-            ;;
-        esac
+        fi
         if [ $arIsCreateRecord -eq 1 ]; then
             # DNSPod 记录不存在有三种表现, 只认 message 会让"自动创建"永远走不到:
             #   1) message = "No records on the list"
@@ -617,18 +708,21 @@ arDdnsCreate() {
     if echo "$errMsg" | grep -q "Record already exists"; then
         arDdnsFindId "$1" "$2" "$3"
         recordId="$arFoundId"
-        arLog "> arDdnsCreate - recovery $(arJsonInfo "$arListRs") records: $(arJsonRecordBrief "$arListRs")"
-        if [ -n "$recordId" ] && [ "$recordId" -gt 0 ] 2>/dev/null; then
+        arLog "> arDdnsCreate - recovery $(arJsonInfo "$arListRs")"
+        arLog "> arDdnsCreate - $(arJsonRecordBrief "$arListRs" "$2")"
+        if [ -n "$recordId" ]; then
             arLog "> arDdnsCreate - record exists, recovered id: $recordId"
             echo "$recordId"
             return 3
         fi
         # 到这里说明"记录确实存在但三轮都拿不到 id"。可操作的中文原因放前面:
         # 页面失败文案取的是第一条 error:, 否则只会显示下面 DNSPod 的英文原文。
-        if [ -n "$arListOtherType" ]; then
+        # 只有类型确实不同(A 与 CNAME/URL 在 DNSPod 里不能共存)才算要用户去后台
+        # 处理的冲突; 类型相同却拿不到 id 属于解析问题, 不能让用户去删自己正常的记录。
+        if [ -n "$arListOtherType" ] && [ "$arListOtherType" != "$3" ]; then
             arLog "> arDdnsCreate - error: 同名记录已存在(类型 $arListOtherType), 与 $3 冲突, 请在 DNSPod 后台处理"
         else
-            arLog "> arDdnsCreate - error: 记录已存在但取不到记录 ID, 请核对主机记录名/类型是否与填写完全一致"
+            arLog "> arDdnsCreate - error: 记录已存在但未取到记录 ID(本次返回 $(arJsonRecordCount "$arListRs") 条记录), 请反馈系统日志"
         fi
         arLog "> arDdnsCreate - DNSPod 原文: $errMsg"
     else
