@@ -289,7 +289,8 @@ sync && echo 3 > /proc/sys/vm/drop_caches
 #如需加速, 请到「系统管理 -> 系统设置」页面的 GitHub 下载加速源输入框填写,
 #或取消下方注释自行设置。自建加速项目: https://github.com/hunshcn/gh-proxy
 #填写格式: 每行一个, 末尾加 /(多个源用空格分隔也可以)
-#nvram set github_proxy="https://ghproxy.net/
+#示例(地址请替换成你自己的加速站, 勿照抄):
+#nvram set github_proxy="https://<你的加速站>/
 #"
 #*************github下载加速******************
 #**************替换背景图片******************
