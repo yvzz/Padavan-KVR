@@ -19,12 +19,26 @@ NPC_FALLBACK_VER="v0.26.38"
 # 更新(版本序列 v0.34.x), 且同样提供 linux_mipsle_client.tar.gz, 可直接填 djylb/nps。
 # 换仓库后版本序列不同, 内置回退版本 v0.26.38 不再适用 —— 置空, 由用户指定版本或靠
 # API 自动获取, 避免拼出 .../releases/download/v0.26.38/... 这种跨仓库的无效 URL。
+# 页面上是二选一: yisier/nps(v0.26.x, 默认) / djylb/nps(v0.34.x, 社区维护版)。
+# 空值(老配置)按默认处理, 其它文本按旧行为兼容(自定义仓库)。
 _npc_repo_cfg=`nvram get npc_repo`
-if [ -n "$_npc_repo_cfg" ]; then
+case "$_npc_repo_cfg" in
+"yisier/nps"|"")
+	NPC_REPO="yisier/nps"
+	;;
+"djylb/nps")
+	NPC_REPO="djylb/nps"
+	# 版本序列不同(v0.34.x), 内置回退版本 v0.26.38 不适用 —— 置空, 由 API 自动获取
+	# 或页面「指定版本」填写, 避免拼出 .../releases/download/v0.26.38/... 这种跨仓库无效 URL
+	NPC_FALLBACK_VER=""
+	logger -t "【NPC】" "使用社区维护版仓库 djylb/nps(版本序列 v0.34.x)"
+	;;
+*)
 	NPC_REPO="$_npc_repo_cfg"
 	NPC_FALLBACK_VER=""
 	logger -t "【NPC】" "使用自定义仓库 $NPC_REPO"
-fi
+	;;
+esac
 NPC_BIN_DIR=""		# 由 npc_pick_dir 决定
 NPC_BIN=""		# 二进制完整路径
 NPC_VER_FILE=""		# 版本标记文件
@@ -232,6 +246,9 @@ npc_ensure_bin()
 	npc_proxys=`nvram get github_proxy`
 	npc_mirrors="$npc_mirror_url"
 	npc_proxys="$npc_mirrors $npc_proxys DIRECT"
+	# 诊断用: 打印本次实际生效的源(值全部来自 nvram, 页面留空则只剩 DIRECT)。
+	# 若这里出现未在页面填写过的源, 说明被「系统设置 -> 自定义脚本」里的 nvram set 写回了。
+	logger -t "【NPC】" "下载源列表: $npc_proxys"
 
 	for npc_proxy in $npc_proxys ; do
 		# 镜像仓库 = 基地址 + GitHub 路径; 加速代理 = 前缀 + 完整 GitHub URL; DIRECT = 直连

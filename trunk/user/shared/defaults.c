@@ -1093,8 +1093,8 @@ struct nvram_pair router_defaults[] = {
 	{ "npc_crypt", "1" },
 	{ "npc_log_level", "3" },
 	{ "npc_version", "" },
-	/* 自定义 GitHub 仓库(留空 = 用内置默认仓库) */
-	{ "npc_repo", "" },
+	/* 客户端仓库: yisier/nps(v0.26.x, 默认) 或 djylb/nps(v0.34.x, 社区维护版), 页面二选一 */
+	{ "npc_repo", "yisier/nps" },
 #endif
 
 #if defined(APP_DDNSTO)

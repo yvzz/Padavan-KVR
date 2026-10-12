@@ -45,6 +45,10 @@ function initial(){
 	change_npc_enable_bridge(1);
 	fill_status(npc_status());
 
+	// 客户端仓库: 旧配置可能存的是空值或自定义文本, 两个按钮都没选中时兜底选默认仓库
+	if (!document.form.npc_repo[0].checked && !document.form.npc_repo[1].checked)
+		document.form.npc_repo[0].checked = true;
+
 	if (!login_safe())
 		textarea_scripts_enabled(0);
 }
@@ -262,11 +266,17 @@ function button_restartnpc() {
 											</td>
 										</tr>
 										<tr id="npc_repo_tr" style="display:none;">
-											<th width="30%" style="border-top: 0 none;">自定义仓库:</th>
+											<th width="30%" style="border-top: 0 none;">客户端仓库:</th>
 											<td style="border-top: 0 none;">
-												<input type="text" maxlength="60" class="input" size="30" id="npc_repo" name="npc_repo" placeholder="留空用内置默认仓库" value="<% nvram_get_x("","npc_repo"); %>" onkeypress="return is_string(this,event);" />
-												<span class="help-inline">留空 = 内置仓库(yisier/nps, 停在 v0.26.39)</span>
-												<br/><span style="color:#888;">可填社区二次维护版 <code>djylb/nps</code>(版本已到 v0.34.x, 有 linux_mipsle_client.tar.gz)。<b>注意: 客户端版本须与服务端(nps)匹配</b>, 服务端若是 0.26.x 请保持留空。</span>
+												<label class="radio" style="display:inline-block; margin-right:24px;">
+													<input type="radio" name="npc_repo" id="npc_repo_yisier" value="yisier/nps" <% nvram_match_x("", "npc_repo", "yisier/nps", "checked"); %> />
+													yisier/nps <span class="help-inline">v0.26.x(默认)</span>
+												</label>
+												<label class="radio" style="display:inline-block;">
+													<input type="radio" name="npc_repo" id="npc_repo_djylb" value="djylb/nps" <% nvram_match_x("", "npc_repo", "djylb/nps", "checked"); %> />
+													djylb/nps <span class="help-inline">v0.34.x(社区二次维护版)</span>
+												</label>
+												<br/><span style="color:#888;">两者都提供 linux_mipsle_client.tar.gz, 可直接切换。<b>注意: 客户端版本须与服务端(nps)匹配</b>, 服务端若是 0.26.x 请保持 yisier/nps。</span>
 											</td>
 										</tr>
 										<tr id="row_post_wan_script">
