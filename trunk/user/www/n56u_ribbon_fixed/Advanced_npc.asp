@@ -44,7 +44,6 @@ function initial(){
 
 	change_npc_enable_bridge(1);
 	fill_status(npc_status());
-	showhide_div("npc_restart_btn", npc_status());
 
 	if (!login_safe())
 		textarea_scripts_enabled(0);
@@ -176,7 +175,7 @@ function button_restartnpc() {
 														<input type="checkbox" id="npc_enable_fake" <% nvram_match_x("", "npc_enable", "1", "value=1 checked"); %><% nvram_match_x("", "npc_enable", "0", "value=0"); %>  />
 													</div>
 												</div>
-												<span id="npc_restart_btn" style="display:none; vertical-align:middle; margin-left:16px;">
+												<span id="npc_restart_btn" style="vertical-align:middle; margin-left:16px;">
 													<input class="btn btn-success" style="width:80px" type="button" value="重启" onclick="button_restartnpc()" />
 												</span>
 											<div style="position: absolute; margin-left: -10000px;">
