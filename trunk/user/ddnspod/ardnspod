@@ -609,7 +609,6 @@ arDdnsCreate() {
     fi
 
     errMsg=$(echo $recordRs | sed 's/.*,"message":"\([^"]*\)".*/\1/')
-    arLog "> arDdnsCreate - error: $errMsg"
 
     # "Record already exists": Create 认为同名记录已存在, 但 Lookup 三轮都没找到 id。
     # 用同一套三轮查询再找一次(此时 Create 已证明记录存在), 拿到真实 record_id 让
@@ -624,9 +623,16 @@ arDdnsCreate() {
             echo "$recordId"
             return 3
         fi
+        # 到这里说明"记录确实存在但三轮都拿不到 id"。可操作的中文原因放前面:
+        # 页面失败文案取的是第一条 error:, 否则只会显示下面 DNSPod 的英文原文。
         if [ -n "$arListOtherType" ]; then
-            arLog "> arDdnsCreate - error: 同名记录已存在(类型 $arListOtherType), 与 $3 冲突"
+            arLog "> arDdnsCreate - error: 同名记录已存在(类型 $arListOtherType), 与 $3 冲突, 请在 DNSPod 后台处理"
+        else
+            arLog "> arDdnsCreate - error: 记录已存在但取不到记录 ID, 请核对主机记录名/类型是否与填写完全一致"
         fi
+        arLog "> arDdnsCreate - DNSPod 原文: $errMsg"
+    else
+        arLog "> arDdnsCreate - error: $errMsg"
     fi
 
     return 1
