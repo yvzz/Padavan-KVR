@@ -279,6 +279,23 @@ arDdnsApi() {
 
 }
 
+# 从 DNSPod 的 JSON 响应里提取记录 id。
+# 关键: id 可能是数字(16894439)也可能是字符串("16894439"), 视接口与版本而定。
+# 旧代码只用 sed 匹配 "id":"数字", 遇到数字格式会完全失配 —— recordId 变成整段
+# JSON 字符串, [ -gt 0 ] 判定失败, 于是被误判成"记录不存在"; 接着去 Create,
+# DNSPod 却回 "Record already exists", 而恢复用的 List 又是一样的解析, 再次失配,
+# 形成 "查不到 -> 创建报已存在 -> 死循环"。这里两种格式都兼容。
+# Args: jsonResponse
+arJsonId() {
+    echo "$1" | grep -oE '"id": ?"?[0-9]+' | head -1 | grep -oE '[0-9]+'
+}
+
+# 同上, 但只取 records 数组内的第一个 id, 避免取到响应里 domain 的 id。
+# Args: jsonResponse
+arJsonRecordId() {
+    echo "$1" | awk -F'"records":' '{print $2}' | grep -oE '"id": ?"?[0-9]+' | head -1 | grep -oE '[0-9]+'
+}
+
 # Fetch Record Id
 # Args: domain subdomain recordType
 
@@ -290,28 +307,36 @@ arDdnsLookup() {
     local recordRs
     local recordCd
 
-    if [ "$2" != "@" ]; then
+    # 必须 local 且先清空: 这个变量原本是全局的, 同一进程里连续更新多个域名时
+    # 会残留上一次的值, 导致把错误的 sub_domain 带进下一次查询。
+    local subDomainRule=""
+    if [ "$2" != "@" ] && [ -n "$2" ]; then
         # No sub_domain for root domain
         subDomainRule="&sub_domain=$2"
     fi
 
     # Get Record Id
-    # record_line_id=0 = 默认线路, 与 Create 用的 record_line=%e9%bb%98%e8%ae%a4 (默认) 对应.
+    # record_line_id=0 = 默认线路, 与 Create 用的 record_line_id=0 (默认) 对应.
     # 不加这个参数时 DNSPod API 偶发返回空 records 数组(已知一致性坑), 导致
     # Lookup 误判"记录不存在" -> Create 报"Record already exists" -> 死结.
     # 按 line 过滤后与 Create 查询条件一致, 避免空数组误判.
+    # 轮 1: 按 line + type 精确过滤
     recordRs=$(arDdnsApi "Record.List" "domain=$1${subDomainRule}&record_type=$3&record_line_id=0")
-    # 只取 records 数组后的第一个 "id":"数字", 避免取到 domain.id.
-    # 原来的贪婪 sed `.*"id":"数字".*` 在记录不存在(空数组)时会取到 domain.id
-    # (它是 JSON 里唯一的 "id":"数字"), 导致 [ $recordId -gt 0 ] 为真,
-    # 跳过"记录不存在"判断, 拿 domain.id 去更新必然失败.
-    recordId=$(echo "$recordRs" | awk -F'"records":' '{print $2}' | sed 's/.*"id":"\([0-9]*\)".*/\1/')
+    recordId=$(arJsonRecordId "$recordRs")
+    # 轮 2: 只按子域名过滤。DNSPod 的 line/type 过滤在部分账号/套餐上会漏返回记录,
+    # 此时放宽条件再查一次, 能救回"记录确实存在但精确查询查不到"的情况。
+    if ! [ "$recordId" -gt 0 ] 2>/dev/null ; then
+        recordRs=$(arDdnsApi "Record.List" "domain=$1${subDomainRule}")
+        recordId=$(arJsonRecordId "$recordRs")
+    fi
     # DNSPod api code: "1"=调用成功(不代表查到了记录), 负数=鉴权/参数等真错误
     recordCd=$(echo $recordRs | sed 's/.*{"code":"\([0-9-]*\)".*/\1/')
 
     if ! [ "$recordId" -gt 0 ] 2>/dev/null ;then
         errMsg=$(echo $recordRs | sed 's/.*"message":"\([^\"]*\)".*/\1/')
         arLog "> arDdnsLookup - $errMsg"
+        # 解析不出来时把原始响应打出来(截断), 否则"查不到/已存在"的死循环没法定位
+        arLog "> arDdnsLookup - raw: $(echo "$recordRs" | tr -d '\n' | cut -c1-200)"
         if [ $arIsCreateRecord -eq 1 ]; then
             # DNSPod 记录不存在有三种表现, 只认 message 会让"自动创建"永远走不到:
             #   1) message = "No records on the list"
@@ -361,13 +386,13 @@ arDdnsUpdate() {
 
     # update ip
     if [ -z "$5" ]; then
-        recordRs=$(arDdnsApi "Record.Ddns" "domain=$1&sub_domain=$2&record_id=$3&record_type=$4&record_line=%e9%bb%98%e8%ae%a4")
+        recordRs=$(arDdnsApi "Record.Ddns" "domain=$1&sub_domain=$2&record_id=$3&record_type=$4&record_line_id=0")
     else
         if [ "$5" = "$lastRecordIp" ]; then
             arLog "> arDdnsUpdate - unchanged: $lastRecordIp" # unchanged event
             return $arErrCodeUnchanged
         fi
-        recordRs=$(arDdnsApi "Record.Ddns" "domain=$1&sub_domain=$2&record_id=$3&record_type=$4&value=$5&record_line=%e9%bb%98%e8%ae%a4")
+        recordRs=$(arDdnsApi "Record.Ddns" "domain=$1&sub_domain=$2&record_id=$3&record_type=$4&value=$5&record_line_id=0")
     fi
 
     # parse result
@@ -478,11 +503,11 @@ arDdnsCreate() {
     local recordId
 
     # create record
-    recordRs=$(arDdnsApi "Record.Create" "domain=$1&sub_domain=$2&record_type=$3&value=$4&record_line=%e9%bb%98%e8%ae%a4")
+    recordRs=$(arDdnsApi "Record.Create" "domain=$1&sub_domain=$2&record_type=$3&value=$4&record_line_id=0")
 
     # parse result
     recordCd=$(echo $recordRs | sed 's/.*{"code":"\([0-9]*\)".*/\1/')
-    recordId=$(echo $recordRs | sed 's/.*{"id":"\([0-9]*\)".*/\1/')
+    recordId=$(arJsonId "$recordRs")
 
     # 成功: 全新创建
     if [ "$recordCd" = "1" ]; then
@@ -499,8 +524,14 @@ arDdnsCreate() {
     # 按与 Create 一致的 line 重新查一次, 拿到真实 record_id 让调用方继续 update,
     # 把 IP 同步成当前值. 返回 3 = "记录已存在, 已恢复 id, 调用方应继续 update".
     if echo "$errMsg" | grep -q "Record already exists"; then
+        # 先按精确条件查, 查不到再放宽(去掉 line/type 过滤)重试一次
         recordRs=$(arDdnsApi "Record.List" "domain=$1&sub_domain=$2&record_type=$3&record_line_id=0")
-        recordId=$(echo "$recordRs" | awk -F'"records":' '{print $2}' | sed 's/.*"id":"\([0-9]*\)".*/\1/')
+        recordId=$(arJsonRecordId "$recordRs")
+        if ! [ "$recordId" -gt 0 ] 2>/dev/null ; then
+            recordRs=$(arDdnsApi "Record.List" "domain=$1&sub_domain=$2")
+            recordId=$(arJsonRecordId "$recordRs")
+        fi
+        arLog "> arDdnsCreate - recovery raw: $(echo "$recordRs" | tr -d '\n' | cut -c1-200)"
         if [ -n "$recordId" ] && [ "$recordId" -gt 0 ] 2>/dev/null; then
             arLog "> arDdnsCreate - record exists, recovered id: $recordId"
             echo "$recordId"
