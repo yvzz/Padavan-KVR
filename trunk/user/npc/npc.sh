@@ -11,38 +11,15 @@
 #    新旧实例并存会吃光内存和线程, tokio 起不来线程会直接 panic
 #    (OS can't spawn worker thread: Resource temporarily unavailable, os error 11)
 
+# 只保留 yisier/nps(v0.26.x) 一个渠道:
+# nps 原仓库(ehang-io/nps)早已停更(停在 v0.26.x); 社区二次维护版 djylb/nps(v0.34.x)
+# 实测连不上 0.26.x 的服务端(进程起来立刻退出), 已整条移除 —— 客户端必须与服务端版本匹配。
 NPC_REPO="yisier/nps"
+# NPC_CHANNEL: 自备仓库站(Padavan-depot)里对应的目录名
+NPC_CHANNEL="yisier"
 NPC_TARBALL="linux_mipsle_client.tar.gz"
+# 镜像站/GitHub API 都拿不到版本时的兜底版本(属于同一 v0.26.x 序列)
 NPC_FALLBACK_VER="v0.26.38"
-# 页面「自定义仓库」可覆盖内置仓库。
-# nps 原仓库(ehang-io/nps)早已停更(停在 v0.26.x), 社区二次维护版 djylb/nps 仍在活跃
-# 更新(版本序列 v0.34.x), 且同样提供 linux_mipsle_client.tar.gz, 可直接填 djylb/nps。
-# 换仓库后版本序列不同, 内置回退版本 v0.26.38 不再适用 —— 置空, 由用户指定版本或靠
-# API 自动获取, 避免拼出 .../releases/download/v0.26.38/... 这种跨仓库的无效 URL。
-# 页面上是二选一: yisier/nps(v0.26.x, 默认) / djylb/nps(v0.34.x, 社区维护版)。
-# 空值(老配置)按默认处理, 其它文本按旧行为兼容(自定义仓库)。
-_npc_repo_cfg=`nvram get npc_repo`
-# NPC_CHANNEL: 自备仓库站(Padavan-depot)里对应的目录名, 只有内置的两个仓库有镜像
-case "$_npc_repo_cfg" in
-"yisier/nps"|"")
-	NPC_REPO="yisier/nps"
-	NPC_CHANNEL="yisier"
-	;;
-"djylb/nps")
-	NPC_REPO="djylb/nps"
-	NPC_CHANNEL="djylb"
-	# 版本序列不同(v0.34.x), 内置回退版本 v0.26.38 不适用 —— 置空, 由 API 自动获取
-	# 或页面「指定版本」填写, 避免拼出 .../releases/download/v0.26.38/... 这种跨仓库无效 URL
-	NPC_FALLBACK_VER=""
-	logger -t "【NPC】" "使用社区维护版仓库 djylb/nps(版本序列 v0.34.x)"
-	;;
-*)
-	NPC_REPO="$_npc_repo_cfg"
-	NPC_CHANNEL=""
-	NPC_FALLBACK_VER=""
-	logger -t "【NPC】" "使用自定义仓库 $NPC_REPO(自备仓库站无此渠道的镜像)"
-	;;
-esac
 # 自备二进制仓库站(Padavan-depot)国内镜像基地址。
 # 目录结构: $NPC_DEPOT/npc/<渠道>/linux_mipsle_client.tar.gz
 # 留空时用内置默认(Gitee 镜像), 也可在页面/NVRAM 里改成 jsDelivr 或自建服务器。
@@ -204,7 +181,6 @@ npc_latest_ver()
 # 走国内镜像, 比 api.github.com 快且不会被墙; 失败不影响后面回退 GitHub。
 npc_depot_ver()
 {
-	[ -z "$NPC_CHANNEL" ] && return 0
 	_npc_dv=""
 	# 必须 -L: Gitee 的 raw 会 302 跳到 raw.giteeusercontent.com, 不跟随会拿到跳转页面
 	if [ -x /usr/bin/curl ]; then
@@ -252,7 +228,7 @@ npc_ensure_bin()
 	elif [ -n "$npc_version" ]; then
 		# 指定了版本: 自备仓库站里只有最新版, 这种情况不走镜像
 		npc_dl_ver="$npc_version"
-	elif [ -n "$NPC_CHANNEL" ]; then
+	else
 		# 先问自备仓库站(国内直连, 快), 拿不到再回退 GitHub API
 		npc_dl_ver=`npc_depot_ver`
 		if [ -n "$npc_dl_ver" ]; then
@@ -261,9 +237,7 @@ npc_ensure_bin()
 		fi
 	fi
 	if [ -z "$npc_dl_ver" ]; then
-		if [ -n "$NPC_CHANNEL" ]; then
-			logger -t "【NPC】" "镜像站未返回版本, 回退 GitHub API"
-		fi
+		logger -t "【NPC】" "镜像站未返回版本, 回退 GitHub API"
 		npc_dl_ver=`npc_latest_ver`
 		if [ -n "$npc_dl_ver" ]; then
 			logger -t "【NPC】" "使用最新版本 $npc_dl_ver"
@@ -271,9 +245,8 @@ npc_ensure_bin()
 			npc_dl_ver="$NPC_FALLBACK_VER"
 			logger -t "【NPC】" "获取最新版本失败, 使用 $npc_dl_ver"
 		else
-			# 自定义仓库: 版本序列与内置仓库不同, 没有可用的默认版本。
 			# 这里必须 return, 否则会拼出 .../releases/download//xxx 这种空版本 URL。
-			logger -t "【NPC】" "获取最新版本失败, 自定义仓库 $NPC_REPO 无默认版本, 请在页面「指定版本」填写(如 v0.34.7)"
+			logger -t "【NPC】" "获取最新版本失败, 请在页面「指定版本」填写(如 v0.26.38)"
 			return 1
 		fi
 	fi

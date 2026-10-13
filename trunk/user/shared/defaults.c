@@ -1089,8 +1089,6 @@ struct nvram_pair router_defaults[] = {
 	{ "npc_crypt", "1" },
 	{ "npc_log_level", "3" },
 	{ "npc_version", "" },
-	/* 客户端仓库: yisier/nps(v0.26.x, 默认) 或 djylb/nps(v0.34.x, 社区维护版), 页面二选一 */
-	{ "npc_repo", "yisier/nps" },
 	/* 自定义下载地址(完整直链), 留空=走 GitHub 仓库 */
 	{ "npc_url", "" },
 	/* 自备二进制仓库站(Padavan-depot)国内镜像基地址, 留空时脚本用内置默认(Gitee)。
