@@ -24,8 +24,10 @@ if [ "$mem_total" -ge 200000 ] ; then
 	size_tmp="64M"
 	size_var="8M"
 elif [ "$mem_total" -ge 90000 ] ; then
-	# ≥128M(K2P、小米mini 等主流机型)
-	size_tmp="48M"
+	# ≥128M(K2P、小米mini 等主流机型)。
+	# 36M 是实测折中: EasyTier(约 9M) + npc(16.2M) 常驻约 25M, 再加日志与下载峰值,
+	# 24M 会卡在临界值(解包写出残片); 而 48M 在 128M 内存机型上偏激进。
+	size_tmp="36M"
 	size_var="6M"
 fi
 
