@@ -92,8 +92,7 @@ et_pick_bin_dir() {
 	for _cand in /tmp/easytier ; do
 		mkdir -p "$_cand" 2>/dev/null
 		[ -d "$_cand" ] || continue
-		_avail=$(df -k "$_cand" 2>/dev/null | awk 'NR==2{print $4}')
-		[ -n "$_avail" ] || _avail=0
+		_avail=$(et_df_avail "$_cand")
 		[ "$_avail" -ge 20480 ] 2>/dev/null || continue
 		echo "$_cand"
 		return 0
@@ -154,6 +153,84 @@ dl_lock_try() {
 dl_lock_release() {
 	rm -rf "$dl_lock" 2>/dev/null
 }
+# 跨插件全局下载锁: 与 NPC 共用同一把锁(/var/lock/padavan_dl.lock)。
+# 背景: 开机时 EasyTier 与 NPC 被 autostart 并行拉起, 各自都要往 /tmp 下载
+# 十几兆的二进制, 而 /tmp 只有约 30M —— 同时下载必然有一方(或双方)写出截断的
+# 二进制, 表现为"下载成功但运行失败/程序不完整"。这里让插件排队下载。
+g_dl_lock="/var/lock/padavan_dl.lock"
+g_dl_lock_wait() {
+	_i=0
+	while [ $_i -lt 150 ] ; do
+		mkdir "$g_dl_lock" 2>/dev/null && { echo $$ > "$g_dl_lock/pid" 2>/dev/null; date +%s > "$g_dl_lock/ts" 2>/dev/null; return 0; }
+		# 僵死锁保护: 持锁进程已不在(异常退出)或超过 300 秒未完成 -> 强制接管。
+		# 存活判定优先用 kill -0: /proc 在部分环境不存在, 而 $$ 在子 shell/管道里
+		# 又可能不是真正的持锁者, 只看 /proc 会把正常持锁误判成"已死"而抢锁。
+		_hold=$(cat "$g_dl_lock/pid" 2>/dev/null)
+		_dead=1
+		if [ -n "$_hold" ] && kill -0 "$_hold" 2>/dev/null ; then
+			_dead=0
+		elif [ -d "/proc/$_hold" ] ; then
+			_dead=0
+		elif [ -n "$_hold" ] && [ ! -d "/proc/1" ] ; then
+			# 没有 /proc 的环境无法确认, 保守按"还活着"处理(交给 300 秒超时兜底)
+			_dead=0
+		fi
+		if [ "$_dead" = "1" ] ; then
+			rm -rf "$g_dl_lock" 2>/dev/null
+			continue
+		fi
+		_ts=$(cat "$g_dl_lock/ts" 2>/dev/null)
+		if [ -n "$_ts" ] && [ $(( $(date +%s) - _ts )) -gt 300 ] ; then
+			rm -rf "$g_dl_lock" 2>/dev/null
+			continue
+		fi
+		sleep 2
+		_i=$((_i+2))
+	done
+	return 1
+}
+g_dl_lock_release() {
+	rm -rf "$g_dl_lock" 2>/dev/null
+}
+
+# 二进制完整性校验: 下载被中断/空间不足时 unzip 可能只解出半截文件,
+# -s 判断不出来、-h 也可能照样输出几行帮助文本, 于是"看似下载成功"却一运行就崩。
+# 用最小体积 + ELF 魔数双条件(与 npc.sh 的 npc_bin_ok 同一套思路)。
+et_bin_size() {
+	_sz=$(stat -c %s "$1" 2>/dev/null)
+	case "$_sz" in
+	''|*[!0-9]*) _sz=$(wc -c < "$1" 2>/dev/null | tr -d ' ') ;;
+	esac
+	case "$_sz" in
+	''|*[!0-9]*) _sz=0 ;;
+	esac
+	echo "$_sz"
+}
+et_bin_why() {
+	[ -s "$1" ] || { echo "文件不存在或为空"; return 1; }
+	_sz=$(et_bin_size "$1")
+	[ "$_sz" -lt 3145728 ] && { echo "体积异常: ${_sz} 字节(easytier-core 完整约 6.7M)"; return 1; }
+	_magic=$(head -c 4 "$1" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')
+	case "$_magic" in
+	7f454c46|'') return 0 ;;
+	esac
+	echo "不是 ELF 可执行文件(魔数 $_magic)"
+	return 1
+}
+et_bin_ok() {
+	et_bin_why "$1" >/dev/null 2>&1
+}
+
+# 取某目录可用空间(KB)。用 sed+cut 而不是 awk: 设备上的 awk 对某些写法直接
+# 取不到值(曾让空间判断恒为 0/空, 导致误判"空间不足"去清理别的插件)。
+et_df_avail() {
+	_a=$(df -k "$1" 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4)
+	case "$_a" in
+	''|*[!0-9]*) _a=0 ;;
+	esac
+	echo "$_a"
+}
+
 # 读取持锁实例写入的下载进度(由 et_dl_timeout 每 5 秒更新到 $dl_lock/prog),
 # 供并发实例在"已有实例正在下载, 本次跳过"时把进度显示出来,
 # 否则日志是静默的, 分不清"正在正常下载"还是"已卡死".
@@ -358,8 +435,8 @@ dowload_et_official() {
 		# 若是 /tmp 依然吃紧, 大概率是空间不足(而非版本不兼容) —— 绝不能锁死版本,
 		# 否则要白白等 30 分钟才重试; 只有空间充裕仍失败, 才认定是版本真的不兼容
 		# (换任何源下载的二进制都相同, 重下纯属浪费带宽并再次撑爆 /tmp)。
-		_room=$(df -k /tmp 2>/dev/null | awk 'NR==2{print $4}')
-		if [ -n "$_room" ] && [ "$_room" -lt 5120 ] 2>/dev/null ; then
+		_room=$(et_df_avail /tmp)
+		if [ "$_room" -lt 5120 ] 2>/dev/null ; then
 			logg "$et_core 启动测试失败, 但 /tmp 仅剩 ${_room}K(疑似空间不足), 不锁定版本, 稍后重试"
 		else
 			logg "官方版本 $tag 无法运行(-h 测试失败), 不再换源重试(换源下载的二进制相同)"
@@ -455,12 +532,12 @@ dowload_et_mirror() {
 # /tmp 里放时会把空间挤爆, 导致双方下载/启动都失败.
 et_make_tmp_room() {
 	# 只清理 /tmp 下的 npc 二进制(/etc/storage/bin 里的不占 /tmp 空间)
-	_avail=$(df -k /tmp 2>/dev/null | awk 'NR==2{print $4}')
-	[ -n "$_avail" ] || _avail=0
-	# 阈值 32M: zip 约 9.4M + 解压后 core 6.7M + cli 2.7M ≈ 19M, 再给 NPC 二进制
-	# (约 9M) 与日志留余量。旧阈值 20M 会在"NPC 已占 9M"时误判为空间够,
-	# 导致 unzip 解压出被截断的二进制, 最终 -h 测试失败并被误锁 30 分钟。
-	[ "$_avail" -ge 32768 ] 2>/dev/null && return 0
+	_avail=$(et_df_avail /tmp)
+	# 阈值 18M(zip 约 9.4M + 解压后 core 6.7M + cli 2.7M ≈ 19M, 取略保守值):
+	# 只有真放不下时才去停 NPC。旧阈值 32M 在 /tmp 只有 30M 的设备上恒为真,
+	# 于是每次开机都先把正在下载的 NPC 杀掉 —— 这正是"NPC 下载失败/跳过"的来源;
+	# 现在二进制下载已由全局锁串行化, NPC 不会再与 EasyTier 同时占空间。
+	[ "$_avail" -ge 18432 ] 2>/dev/null && return 0
 
 	rm -f /var/run/easytier_tmp_room 2>/dev/null
 	# NPC 未启用, 或二进制不在 /tmp(在 flash), 无需也不应动
@@ -635,7 +712,13 @@ start_core() {
 	get_tag
  	if [ -f "$et_core" ] ; then
 		[ ! -x "$et_core" ] && chmod +x $et_core
-  		[[ "$($et_core -h 2>&1 | wc -l)" -lt 2 ]] && logg "程序${et_core}不完整！" && rm -rf $et_core
+		# 完整性校验: -h 输出行数不可靠(截断的 ELF 仍能打印几行帮助后被判定"可用",
+		# 于是接着运行 -> 秒退 -> 重启 19 分钟退避)。这里用 ELF 魔数 + 最小体积
+		# 直接把残片拦掉并删除重下。
+		if ! et_bin_ok "$et_core" ; then
+			logg "程序${et_core}不完整：$(et_bin_why "$et_core")，删除后重新下载"
+			rm -rf $et_core
+		fi
   	fi
  	if [ ! -f "$et_core" ] ; then
 		# 抢下载锁, 抢不到说明已有实例在下载, 直接退出等守护下次重试, 避免并发踩踏
@@ -644,6 +727,12 @@ start_core() {
 			return 1
 		fi
 		date +%s > "$dl_lock/ts"
+		# 跨插件排队: NPC 可能正在下载 16M 的二进制, 同时下必然写爆 /tmp
+		if ! g_dl_lock_wait ; then
+			logg "等待其他插件(NPC)下载超时, 本次跳过"
+			dl_lock_release
+			return 1
+		fi
   		[ -z "$tag" ] && tag="v2.6.4"
 		# 版本经测试无法运行时跳过下载(30 分钟内), 避免守护每 80 秒反复下载
 		# 同一个跑不起来的版本形成死循环. 超过 30 分钟自动解除(也许版本更新了)
@@ -654,6 +743,7 @@ start_core() {
 			if [ -n "$_badts" ] && [ $((_now - _badts)) -lt 1800 ] ; then
 				logg "版本 $tag 近期测试无法运行, 跳过下载(30分钟内不重试, 请在页面指定其他版本)"
 				dl_lock_release
+				g_dl_lock_release
 				return 1
 			else
 				nvram set easytier_bin_bad=""
@@ -663,10 +753,12 @@ start_core() {
 		logg "主程序${et_core}不存在，开始在线下载..."
   		if ! dowload_et $tag ; then
   			dl_lock_release
+  			g_dl_lock_release
   			logg "本次下载未成功, 不启动, 等待守护下次重试"
   			return 1
   		fi
 		dl_lock_release
+		g_dl_lock_release
   	fi
 	sed -Ei '/【EasyTier_core】|^$/d' /tmp/script/_opt_script_check
 	# 先杀干净再起: 旧实例没退完就起新的, 两者并存会吃光内存/线程,

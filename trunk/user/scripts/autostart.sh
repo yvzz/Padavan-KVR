@@ -112,8 +112,11 @@ logger -t "自动启动" "正在启动EasyTier"
 fi
 
 if [ $(nvram get npc_enable) = 1 ] ; then
+# 错开几秒再拉起: 两者都要往 /tmp 下载十几兆二进制(设备 /tmp 仅约 30M),
+# 同一秒启动会互相挤爆空间写出截断文件。真正的互斥由 /var/lock/padavan_dl.lock
+# 串行化(两脚本共用), 这里只是让 EasyTier 先抢到锁、少一次"等待/跳过"。
 logger -t "自动启动" "正在启动NPC内网穿透"
-/usr/bin/npc.sh start &
+( sleep 5 ; /usr/bin/npc.sh start ) &
 fi
 
 if [ $(nvram get wxsend_enable) = 1 ] || [ $(nvram get wxsend_enable) = 2 ] ; then

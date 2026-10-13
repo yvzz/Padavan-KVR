@@ -67,6 +67,44 @@ npc_lock_try()
 	return 1
 }
 
+# 跨插件全局下载锁: 与 EasyTier 共用同一把锁(/var/lock/padavan_dl.lock)。
+# 开机时 autostart 并行拉起两个插件, 各自下载十几兆二进制, 而 /tmp 只有约 30M ——
+# 同时下载必然写出截断文件(表现为"下载完成但启动即退出/程序不完整")。
+# 这里让 NPC 排队等待 EasyTier 下完再下, 而不是被 EasyTier 中途 kill。
+G_DL_LOCK="/var/lock/padavan_dl.lock"
+npc_g_dl_lock_wait()
+{
+	_i=0
+	while [ $_i -lt 150 ] ; do
+		mkdir "$G_DL_LOCK" 2>/dev/null && { echo $$ > "$G_DL_LOCK/pid" 2>/dev/null; date +%s > "$G_DL_LOCK/ts" 2>/dev/null; return 0; }
+		_hold=`cat "$G_DL_LOCK/pid" 2>/dev/null`
+		_dead=1
+		if [ -n "$_hold" ] && kill -0 "$_hold" 2>/dev/null ; then
+			_dead=0
+		elif [ -d "/proc/$_hold" ] ; then
+			_dead=0
+		elif [ -n "$_hold" ] && [ ! -d "/proc/1" ] ; then
+			_dead=0
+		fi
+		if [ "$_dead" = "1" ] ; then
+			rm -rf "$G_DL_LOCK" 2>/dev/null
+			continue
+		fi
+		_ts=`cat "$G_DL_LOCK/ts" 2>/dev/null`
+		if [ -n "$_ts" ] && [ $(( $(date +%s) - _ts )) -gt 300 ] ; then
+			rm -rf "$G_DL_LOCK" 2>/dev/null
+			continue
+		fi
+		sleep 2
+		_i=$((_i+2))
+	done
+	return 1
+}
+npc_g_dl_lock_release()
+{
+	rm -rf "$G_DL_LOCK" 2>/dev/null
+}
+
 npc_lock_release()
 {
 	rm -rf "$NPC_LOCK" 2>/dev/null
@@ -381,6 +419,11 @@ npc_ensure_bin()
 	[ -s "$NPC_BIN" ] && logger -t "【NPC】" "已存在的 npc 二进制不完整或版本不匹配, 重新下载"
 
 	logger -t "【NPC】" "开始下载 npc $npc_dl_ver 到 $NPC_BIN_DIR ..."
+	# 与其它插件(EasyTier)排队: 等它下完再下, 避免同时占满 /tmp 写出残片
+	if ! npc_g_dl_lock_wait ; then
+		logger -t "【NPC】" "等待其他插件下载超时, 本次跳过(稍后自动重试)"
+		return 1
+	fi
 	# 空间诊断: 流式解包峰值约 17M(本体 16.2M), 落盘兜底路径约 22M。
 	# 空间不够时 tar 会写出残片, 表现为"下载完成但启动即退出", 所以每次都打出来。
 	logger -t "【NPC】" "可用空间: /etc/storage/bin `df -k /etc/storage/bin 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4` KB, /tmp `df -k /tmp 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4` KB"
@@ -389,6 +432,7 @@ npc_ensure_bin()
 	npc_dl_once "$npc_dl_ver" "$npc_use_depot" "$npc_url_cfg"
 	chmod 755 $NPC_BIN 2>/dev/null
 
+	npc_g_dl_lock_release
 	if npc_bin_ok ; then
 		echo "$npc_dl_ver" > $NPC_VER_FILE
 		nvram set npc_ver="$npc_dl_ver"
