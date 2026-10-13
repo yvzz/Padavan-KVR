@@ -129,10 +129,10 @@ npc_pick_dir()
 		case "$_avail" in
 		''|*[!0-9]*) _avail=0 ;;
 		esac
-		# 解包瞬间要同时放下压缩包(~5.4M)和解压出来的 npc 本体(~16.2M),
-		# 再加余量 —— 老阈值 16M 是按"本体 9M"估的, 实测本体 16187607 字节,
-		# 空间刚好卡在中间就会写出残片。
-		[ "$_avail" -ge 24576 ] || continue
+		# 流式解包峰值约 17M(本体 16187607 字节), 留余量取 20M。
+		# 老阈值 16M 是按"本体 9M"估的, 明显不够; 但也不能定太高(如 32M),
+		# 否则 /tmp 只有 30M 时会全部跳过、退化成"永远用 /tmp"。
+		[ "$_avail" -ge 20480 ] || continue
 		NPC_BIN_DIR="$_d"
 		break
 	done
@@ -279,31 +279,57 @@ npc_dl_once()
 		else
 			npc_dl_url="https://github.com/${NPC_REPO}/releases/download/${_dl_ver}/${NPC_TARBALL}"
 		fi
+
+		# 主路径: 边下边解(不落压缩包)。
+		# 先落盘再解需要同时容纳压缩包 5.4M + 本体 16.2M ≈ 22M, 而 /tmp 总共只有 30M
+		# 且 EasyTier 常驻占约 9M —— 实测可用空间常年在 20M 上下, 正好卡在临界值,
+		# 于是时好时坏(同一份好包, 有时成功有时写出残片)。流式解包峰值只要 16.2M。
+		# curl 的退出码用标记文件带出来(管道里 $? 只能拿到 tar 的)。
+		if [ -x /usr/bin/curl ] ; then
+			rm -f $NPC_BIN "$NPC_BIN_DIR/.dl_ok"
+			{ curl -L -k --connect-timeout 15 --max-time 300 "$npc_dl_url" 2>/dev/null && touch "$NPC_BIN_DIR/.dl_ok" ; } | tar -xz -C $NPC_BIN_DIR -f - 2>/dev/null
+			_npc_tar_rc=$?
+			_npc_curl_ok=0
+			[ -f "$NPC_BIN_DIR/.dl_ok" ] && _npc_curl_ok=1
+			rm -f "$NPC_BIN_DIR/.dl_ok"
+			[ -f $NPC_BIN_DIR/nps/npc ] && mv -f $NPC_BIN_DIR/nps/npc $NPC_BIN
+			rm -rf $NPC_BIN_DIR/nps $NPC_BIN_DIR/conf
+			chmod 755 $NPC_BIN 2>/dev/null
+			# tar 遇到截断的 gzip 会退出非 0 —— 这是识别残包的关键,
+			# 光看体积不行(残包可能被补齐成同样大小)
+			if [ "$_npc_curl_ok" = "1" ] && [ "$_npc_tar_rc" = "0" ] && npc_bin_ok ; then
+				logger -t "【NPC】" "流式下载并解包成功(源 ${npc_proxy})"
+				return 0
+			fi
+			logger -t "【NPC】" "流式解包未成功(源 ${npc_proxy}: curl=$_npc_curl_ok tar=$_npc_tar_rc), 改用落盘方式"
+			rm -f $NPC_BIN
+		fi
+
+		# 兜底: 落盘 + gzip -t 校验后再解
 		npc_dl "$npc_dl_url" "$NPC_BIN_DIR/npc.tar.gz"
 		if [ ! -s "$NPC_BIN_DIR/npc.tar.gz" ]; then
 			logger -t "【NPC】" "源 ${npc_proxy} 下载失败, 换源重试"
 			continue
 		fi
-		# 关键: 下载被中断时包是截断的, -s 判断不出来, 而 tar 仍会解出半个
-		# 二进制(跑起来立刻崩, 表现为"已启动"后 2 秒"启动失败")。
-		# gzip -t 能验出这种残包, 直接换源重下。
+		# 下载被中断时包是截断的, -s 判断不出来, gzip -t 能验出来
 		gzip -t "$NPC_BIN_DIR/npc.tar.gz" >/dev/null 2>&1
 		_npc_gz=$?
 		# 127 = 环境里没有 gzip, 这种情况下无法校验, 不能因此判失败
-		if [ "$_npc_gz" = "0" ] || [ "$_npc_gz" = "127" ] ; then
-			break
+		if [ "$_npc_gz" != "0" ] && [ "$_npc_gz" != "127" ] ; then
+			logger -t "【NPC】" "源 ${npc_proxy} 下载不完整(gzip 校验失败), 换源重试"
+			rm -f "$NPC_BIN_DIR/npc.tar.gz"
+			continue
 		fi
-		logger -t "【NPC】" "源 ${npc_proxy} 下载不完整(gzip 校验失败), 换源重试"
-		rm -f "$NPC_BIN_DIR/npc.tar.gz"
-	done
-
-	if [ -s "$NPC_BIN_DIR/npc.tar.gz" ]; then
 		tar -xz -C $NPC_BIN_DIR -f $NPC_BIN_DIR/npc.tar.gz 2>/dev/null
 		rm -f $NPC_BIN_DIR/npc.tar.gz
 		# 包内为 npc 与 conf/; 个别版本会多套一层 npc/ 目录
 		[ -f $NPC_BIN_DIR/nps/npc ] && mv -f $NPC_BIN_DIR/nps/npc $NPC_BIN
 		rm -rf $NPC_BIN_DIR/nps $NPC_BIN_DIR/conf
-	fi
+		chmod 755 $NPC_BIN 2>/dev/null
+		npc_bin_ok && return 0
+		logger -t "【NPC】" "源 ${npc_proxy} 解包结果不可用($(_npc_why=`npc_bin_ok`; echo "$_npc_why")), 换源重试"
+		rm -f $NPC_BIN
+	done
 }
 
 # 确保 $NPC_BIN 存在且版本匹配
@@ -355,32 +381,22 @@ npc_ensure_bin()
 	[ -s "$NPC_BIN" ] && logger -t "【NPC】" "已存在的 npc 二进制不完整或版本不匹配, 重新下载"
 
 	logger -t "【NPC】" "开始下载 npc $npc_dl_ver 到 $NPC_BIN_DIR ..."
-	# 空间诊断: 解包瞬间要同时容纳压缩包(~5.4M)与本体(~16.2M), 约 22M。
+	# 空间诊断: 流式解包峰值约 17M(本体 16.2M), 落盘兜底路径约 22M。
 	# 空间不够时 tar 会写出残片, 表现为"下载完成但启动即退出", 所以每次都打出来。
 	logger -t "【NPC】" "可用空间: /etc/storage/bin `df -k /etc/storage/bin 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4` KB, /tmp `df -k /tmp 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4` KB"
 	rm -f $NPC_BIN $NPC_BIN_DIR/npc.tar.gz
+	# npc_dl_once 内部已遍历所有源、并会在流式失败时改走落盘+gzip校验, 这里不再重复重试
 	npc_dl_once "$npc_dl_ver" "$npc_use_depot" "$npc_url_cfg"
+	chmod 755 $NPC_BIN 2>/dev/null
 
-	if [ -s "$NPC_BIN" ]; then
-		chmod 755 $NPC_BIN
-		if ! npc_bin_ok ; then
-			# 解出来的不完整(下载被截断): 删掉再下一次, 只重试一轮,
-			# 免得包本身就是坏的时空转。
-			logger -t "【NPC】" "解包得到的 npc 不完整($(_npc_why=`npc_bin_ok`; echo "$_npc_why")), 删除后重新下载"
-			logger -t "【NPC】" "$NPC_BIN_DIR 可用空间: `df -k $NPC_BIN_DIR 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4` KB"
-			rm -f $NPC_BIN $NPC_VER_FILE $NPC_BIN_DIR/npc.tar.gz 2>/dev/null
-			npc_dl_once "$npc_dl_ver" "$npc_use_depot" "$npc_url_cfg"
-			chmod 755 $NPC_BIN 2>/dev/null
-		fi
-		if npc_bin_ok ; then
-			echo "$npc_dl_ver" > $NPC_VER_FILE
-			nvram set npc_ver="$npc_dl_ver"
-			logger -t "【NPC】" "npc $npc_dl_ver 下载完成"
-			return 0
-		fi
-		logger -t "【NPC】" "npc 二进制校验失败($(_npc_why=`npc_bin_ok`; echo "$_npc_why")), 已删除, 稍后重试"
-		rm -f $NPC_BIN $NPC_VER_FILE 2>/dev/null
+	if npc_bin_ok ; then
+		echo "$npc_dl_ver" > $NPC_VER_FILE
+		nvram set npc_ver="$npc_dl_ver"
+		logger -t "【NPC】" "npc $npc_dl_ver 下载完成"
+		return 0
 	fi
+	logger -t "【NPC】" "npc 二进制校验失败($(_npc_why=`npc_bin_ok`; echo "$_npc_why")), 已删除, 稍后重试"
+	rm -f $NPC_BIN $NPC_VER_FILE 2>/dev/null
 
 	logger -t "【NPC】" "/tmp 占用前几名: `du -sk /tmp/* 2>/dev/null | sort -rn | head -5 | tr '\n' ' '`"
 	nvram set npc_ver="下载失败"
