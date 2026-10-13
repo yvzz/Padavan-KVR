@@ -123,10 +123,16 @@ npc_pick_dir()
 	for _d in /etc/storage/bin /tmp/npc ; do
 		mkdir -p "$_d" 2>/dev/null
 		[ -d "$_d" ] || continue
-		_avail=`df -k "$_d" 2>/dev/null | awk 'NR==2{print $4}'`
-		[ -n "$_avail" ] || _avail=0
-		# 约 16M: 二进制 ~9M + 压缩包 ~4M + 余量
-		[ "$_avail" -ge 16384 ] 2>/dev/null || continue
+		# 用 cut 而不是 awk: 设备上的 awk 对部分写法直接匹配不到(取到空值),
+		# 空值会让空间判断失效。tr -s 压缩空格后取第 4 列(可用 KB)。
+		_avail=`df -k "$_d" 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4`
+		case "$_avail" in
+		''|*[!0-9]*) _avail=0 ;;
+		esac
+		# 解包瞬间要同时放下压缩包(~5.4M)和解压出来的 npc 本体(~16.2M),
+		# 再加余量 —— 老阈值 16M 是按"本体 9M"估的, 实测本体 16187607 字节,
+		# 空间刚好卡在中间就会写出残片。
+		[ "$_avail" -ge 24576 ] || continue
 		NPC_BIN_DIR="$_d"
 		break
 	done
@@ -220,14 +226,25 @@ npc_dl()
 # 这里用 ELF 魔数 + 最小体积两个条件把它拦出来。
 npc_bin_ok()
 {
-	[ -s "$NPC_BIN" ] || return 1
+	[ -s "$NPC_BIN" ] || { echo "文件不存在或为空"; return 1; }
+	# 体积: 优先 stat, 取不到就退到 wc -c(不同 busybox 编译项不一样)
 	_npc_sz=`stat -c %s "$NPC_BIN" 2>/dev/null`
-	[ -n "$_npc_sz" ] || return 1
-	# npc 本体约 10MB, 截断的残片远小于此; 阈值取 2MB 足够区分
-	[ "$_npc_sz" -lt 2097152 ] && return 1
-	# ELF 魔数 7f 45 4c 46; 不是 ELF(比如 HTML 错误页)直接判坏
-	[ "`head -c 4 "$NPC_BIN" 2>/dev/null | od -An -tx1 | tr -d ' \n'`" = "7f454c46" ] || return 1
-	return 0
+	case "$_npc_sz" in
+	''|*[!0-9]*) _npc_sz=`wc -c < "$NPC_BIN" 2>/dev/null | tr -d ' '` ;;
+	esac
+	case "$_npc_sz" in
+	''|*[!0-9]*) _npc_sz=0 ;;
+	esac
+	# 完整本体 16187607 字节; 解包时空间不足只会写出残片, 远小于 8M
+	[ "$_npc_sz" -lt 8388608 ] && { echo "体积异常: ${_npc_sz} 字节(完整约 16.2M)"; return 1; }
+	# ELF 魔数 7f 45 4c 46(不是 ELF 说明拿到的是 HTML 错误页之类)。
+	# od 不可用时取不到魔数, 这种情况不能判失败, 交给体积判断兜底。
+	_npc_magic=`head -c 4 "$NPC_BIN" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n'`
+	case "$_npc_magic" in
+	7f454c46|'') return 0 ;;
+	esac
+	echo "不是 ELF 可执行文件(魔数 $_npc_magic)"
+	return 1
 }
 
 # 下载并解包一次(只负责把包拿下来解开, 结果由调用方判断)。
@@ -338,6 +355,9 @@ npc_ensure_bin()
 	[ -s "$NPC_BIN" ] && logger -t "【NPC】" "已存在的 npc 二进制不完整或版本不匹配, 重新下载"
 
 	logger -t "【NPC】" "开始下载 npc $npc_dl_ver 到 $NPC_BIN_DIR ..."
+	# 空间诊断: 解包瞬间要同时容纳压缩包(~5.4M)与本体(~16.2M), 约 22M。
+	# 空间不够时 tar 会写出残片, 表现为"下载完成但启动即退出", 所以每次都打出来。
+	logger -t "【NPC】" "可用空间: /etc/storage/bin `df -k /etc/storage/bin 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4` KB, /tmp `df -k /tmp 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4` KB"
 	rm -f $NPC_BIN $NPC_BIN_DIR/npc.tar.gz
 	npc_dl_once "$npc_dl_ver" "$npc_use_depot" "$npc_url_cfg"
 
@@ -346,7 +366,8 @@ npc_ensure_bin()
 		if ! npc_bin_ok ; then
 			# 解出来的不完整(下载被截断): 删掉再下一次, 只重试一轮,
 			# 免得包本身就是坏的时空转。
-			logger -t "【NPC】" "解包得到的 npc 不完整, 删除后重新下载"
+			logger -t "【NPC】" "解包得到的 npc 不完整($(_npc_why=`npc_bin_ok`; echo "$_npc_why")), 删除后重新下载"
+			logger -t "【NPC】" "$NPC_BIN_DIR 可用空间: `df -k $NPC_BIN_DIR 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f4` KB"
 			rm -f $NPC_BIN $NPC_VER_FILE $NPC_BIN_DIR/npc.tar.gz 2>/dev/null
 			npc_dl_once "$npc_dl_ver" "$npc_use_depot" "$npc_url_cfg"
 			chmod 755 $NPC_BIN 2>/dev/null
@@ -357,10 +378,11 @@ npc_ensure_bin()
 			logger -t "【NPC】" "npc $npc_dl_ver 下载完成"
 			return 0
 		fi
-		logger -t "【NPC】" "npc 二进制校验失败(下载被截断?), 已删除, 稍后重试"
+		logger -t "【NPC】" "npc 二进制校验失败($(_npc_why=`npc_bin_ok`; echo "$_npc_why")), 已删除, 稍后重试"
 		rm -f $NPC_BIN $NPC_VER_FILE 2>/dev/null
 	fi
 
+	logger -t "【NPC】" "/tmp 占用前几名: `du -sk /tmp/* 2>/dev/null | sort -rn | head -5 | tr '\n' ' '`"
 	nvram set npc_ver="下载失败"
 	logger -t "【NPC】" "npc 下载失败(版本 $npc_dl_ver), 稍后自动重试"
 	return 1
