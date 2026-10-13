@@ -208,7 +208,13 @@ npc_dl()
 npc_ensure_bin()
 {
 	npc_version=`nvram get npc_version`
-	if [ -n "$npc_version" ]; then
+	npc_url_cfg=`nvram get npc_url`
+	if [ -n "$npc_url_cfg" ]; then
+		# 自定义直链: 完全绕开 GitHub(国内仓库 / 自建服务器 / 对象存储都可以)。
+		# 版本标记直接用地址本身 —— 地址变了才会重新下载。
+		npc_dl_ver="$npc_url_cfg"
+		logger -t "【NPC】" "使用自定义下载地址 $npc_url_cfg"
+	elif [ -n "$npc_version" ]; then
 		npc_dl_ver="$npc_version"
 	else
 		npc_dl_ver=`npc_latest_ver`
@@ -242,20 +248,27 @@ npc_ensure_bin()
 	# 实测 gitee.com/{yisier,ehang-io,mirrors}/nps 与 nps/nps 均为 404,
 	# 所以这里不像 EasyTier 那样内置 Gitee 镜像。
 	# 实测 GitHub 直连约 5.4MB / 2.8s (1.9MB/s), 速度本身不是瓶颈。
-	npc_proxys=`nvram get github_proxy`
-	npc_proxys="$npc_proxys DIRECT"
-	# 诊断用: 打印本次实际生效的源(值全部来自 nvram, 页面留空则只剩 DIRECT)。
-	# 若这里出现未在页面填写过的源, 说明被「系统设置 -> 自定义脚本」里的 nvram set 写回了。
-	logger -t "【NPC】" "下载源列表: $npc_proxys"
+	if [ -n "$npc_url_cfg" ] ; then
+		# 自定义直链本身就是完整 URL, 不再做前缀/路径拼接
+		npc_proxys="$npc_url_cfg"
+	else
+		npc_proxys=`nvram get github_proxy`
+		npc_proxys="$npc_proxys DIRECT"
+		# 诊断用: 打印本次实际生效的源(值全部来自 nvram, 页面留空则只剩 DIRECT)。
+		# 若这里出现未在页面填写过的源, 说明被「系统设置 -> 自定义脚本」里的 nvram set 写回了。
+		logger -t "【NPC】" "下载源列表: $npc_proxys"
+	fi
 
 	for npc_proxy in $npc_proxys ; do
-		# 镜像仓库 = 基地址 + GitHub 路径; 加速代理 = 前缀 + 完整 GitHub URL; DIRECT = 直连
-		if [ "$npc_proxy" = "DIRECT" ] ; then
-			npc_base="https://github.com/"
+		# 自定义直链 = 完整 URL; 加速代理 = 前缀 + 完整 GitHub URL; DIRECT = 直连
+		if [ -n "$npc_url_cfg" ] ; then
+			npc_dl_url="$npc_url_cfg"
+		elif [ "$npc_proxy" = "DIRECT" ] ; then
+			npc_dl_url="https://github.com/${NPC_REPO}/releases/download/${npc_dl_ver}/${NPC_TARBALL}"
 		else
-			npc_base="${npc_proxy}https://github.com/"
+			npc_dl_url="${npc_proxy}https://github.com/${NPC_REPO}/releases/download/${npc_dl_ver}/${NPC_TARBALL}"
 		fi
-		npc_dl "${npc_base}${NPC_REPO}/releases/download/${npc_dl_ver}/${NPC_TARBALL}" "$NPC_BIN_DIR/npc.tar.gz"
+		npc_dl "$npc_dl_url" "$NPC_BIN_DIR/npc.tar.gz"
 		[ -s "$NPC_BIN_DIR/npc.tar.gz" ] && break
 		logger -t "【NPC】" "源 ${npc_proxy} 下载失败, 换源重试"
 	done

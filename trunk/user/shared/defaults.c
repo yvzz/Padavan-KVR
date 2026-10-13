@@ -1093,6 +1093,8 @@ struct nvram_pair router_defaults[] = {
 	{ "npc_version", "" },
 	/* 客户端仓库: yisier/nps(v0.26.x, 默认) 或 djylb/nps(v0.34.x, 社区维护版), 页面二选一 */
 	{ "npc_repo", "yisier/nps" },
+	/* 自定义下载地址(完整直链), 留空=走 GitHub 仓库 */
+	{ "npc_url", "" },
 #endif
 
 #if defined(APP_DDNSTO)

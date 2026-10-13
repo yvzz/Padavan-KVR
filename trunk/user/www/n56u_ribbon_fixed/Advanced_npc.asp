@@ -97,6 +97,7 @@ function change_npc_enable_bridge(mflag){
 	showhide_div("npc_log_level_tr", m);
 	showhide_div("npc_version_tr", m);
 	showhide_div("npc_repo_tr", m);
+	showhide_div("npc_url_tr", m);
 }
 
 function button_restartnpc() {
@@ -263,6 +264,14 @@ function button_restartnpc() {
 											<td style="border-top: 0 none;">
 												<input type="text" maxlength="30" class="input" size="20" id="npc_version" name="npc_version" placeholder="留空自动下载最新版" value="<% nvram_get_x("","npc_version"); %>" onkeypress="return is_string(this,event);" />
 												<span class="help-inline">留空 = 自动获取最新版；也可填指定版本如 v0.26.38</span>
+											</td>
+										</tr>
+										<tr id="npc_url_tr" style="display:none;">
+											<th width="30%" style="border-top: 0 none;">自定义下载地址:</th>
+											<td style="border-top: 0 none;">
+												<input type="text" maxlength="200" class="input" size="60" id="npc_url" name="npc_url" placeholder="https://.../linux_mipsle_client.tar.gz" value="<% nvram_get_x("","npc_url"); %>" onkeypress="return is_string(this,event);" />
+												<span class="help-inline">留空 = 走上面的仓库 + GitHub</span>
+												<br/><span style="color:#888;">填<b>完整直链</b>(国内仓库 / 自建服务器 / 对象存储均可), 填了就<b>只用它</b>, 完全绕开 GitHub, 也不再查询版本号。文件须是官方那种 tar.gz(内含 npc 与 conf/)。地址变了才会重新下载。</span>
 											</td>
 										</tr>
 										<tr id="npc_repo_tr" style="display:none;">
