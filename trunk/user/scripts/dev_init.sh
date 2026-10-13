@@ -8,9 +8,30 @@ size_tmp="24M"
 size_var="4M"
 size_etc="6M"
 
+# 按实际内存上调 /tmp: 运行期下载二进制的插件(EasyTier 约 9M、npc 约 16M)都落在
+# /tmp, 24M 扣除日志后经常只剩 20M 上下, 刚好卡在临界值 —— 表现为"同一份好包
+# 时好时坏"(解包写出残片)。tmpfs 是按需占用物理内存的, 上限调大不会立刻吃内存,
+# 所以只按内存分档给一个安全上限, 不搞一刀切。
+# 低端(如 64M 内存)设备保持原值, 避免把内存耗在空目录上。
+# 用 tr 压空格 + 简单 BRE 取值, 不用 awk/[[:space:]] 量词:
+# 设备上的 busybox 对部分正则写法直接匹配不到(取到空值), 会让内存分档静默失效。
+mem_total=`sed -n 's/^MemTotal: *\([0-9]*\).*/\1/p' /proc/meminfo 2>/dev/null | head -n1 | cut -d' ' -f1`
+case "$mem_total" in
+''|*[!0-9]*) mem_total=0 ;;
+esac
+if [ "$mem_total" -ge 200000 ] ; then
+	# ≥256M(含 512M 的 R2100/RM2100)
+	size_tmp="64M"
+	size_var="8M"
+elif [ "$mem_total" -ge 90000 ] ; then
+	# ≥128M(K2P、小米mini 等主流机型)
+	size_tmp="48M"
+	size_var="6M"
+fi
+
 if [ "$1" == "-l" ] ; then
-	size_tmp="8M"
-	size_var="1M"
+	size_tmp="16M"
+	size_var="2M"
 fi
 
 mount -t tmpfs tmpfs /dev   -o size=8K
@@ -20,6 +41,14 @@ mount -t tmpfs tmpfs /media -o size=8K
 mount -t tmpfs tmpfs /mnt   -o size=8K
 mount -t tmpfs tmpfs /tmp   -o size=$size_tmp
 mount -t tmpfs tmpfs /var   -o size=$size_var
+
+# 强制生效并核对: 部分内核/busybox 组合会忽略上面的 size=(实测 /tmp 仍是 30M,
+# 即 tmpfs 默认的"一半物理内存"), 挂载选项形同虚设。这里记下目标值, 由
+# mtd_storage.sh fill 阶段(DISK 已就绪)再 remount 一次并把实际结果记进日志,
+# 排障时能一眼看出 /tmp 上限到底是多少。
+echo "$mem_total" > /tmp/.mem_total_kb 2>/dev/null
+# 只留数字(MB), mtd_storage.sh 会补上单位; 写非数字会在那边被判为无效而跳过
+echo "${size_tmp%M}" > /tmp/.size_tmp_target 2>/dev/null
 
 mkdir /dev/pts
 mount -t devpts devpts /dev/pts

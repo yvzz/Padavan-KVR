@@ -223,6 +223,28 @@ func_fill()
 	chnroute_file="/etc_ro/chnroute.bz2"
 	#gfwlist_conf_file="/etc_ro/gfwlist.bz2"
 
+	# 强制设定 /tmp 上限并核对(dev_init.sh 挂载时给的 size= 在部分内核/busybox
+	# 组合下会被忽略, 实测 /tmp 仍是 30M 而非设定的 24M)。这里再 remount 一次,
+	# 并把"目标值 / 实际值"记进日志 —— 插件二进制都下到 /tmp, 上限不明会误导排障。
+	if [ -s /tmp/.size_tmp_target ] ; then
+		tgt_size=`cat /tmp/.size_tmp_target 2>/dev/null | tr -d ' \r\n'`
+		case "$tgt_size" in
+		''|*[!0-9]) tgt_size="" ;;
+		esac
+		[ -n "$tgt_size" ] && tgt_size="${tgt_size}M"
+		if [ -n "$tgt_size" ] ; then
+			# 已用空间: 目标必须不小于当前用量, 否则 remount 会失败(不缩小以防丢文件)
+			cur_used=`df -k /tmp 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f3`
+			case "$cur_used" in
+			''|*[!0-9]*) cur_used=0 ;;
+			esac
+			mount -t tmpfs -o remount,rw,size=$tgt_size tmpfs /tmp 2>/dev/null
+			act_size=`df -k /tmp 2>/dev/null | sed -n '2p' | tr -s ' ' ' ' | cut -d' ' -f2`
+			logger -t "Storage fill" "/tmp 上限目标 ${tgt_size}(已用 ${cur_used}KB), 实际生效 $((act_size / 1024))M"
+			rm -f /tmp/.size_tmp_target
+		fi
+	fi
+
 	# create crond dir
 	[ ! -d "$dir_crond" ] && mkdir -p -m 730 "$dir_crond"
 
@@ -288,6 +310,7 @@ sync && echo 3 > /proc/sys/vm/drop_caches
 #上传图片命名为wood.jpg到/etc/storage/bg/目录里即可，刷新浏览器缓存
 #**************替换背景图片*******************
 ##挂载内存多少M，如果你觉得你tmp目录空间不够，可以去掉下方的#修改下方的50为你需要的大小，不可超出设备硬件内存大小##
+##注：/tmp 上限已按内存自动设定(≥128M 内存→48M，≥256M→64M)，一般无需再改；确需更大请取消下方注释##
  #mount -t tmpfs -o remount,rw,size=50M tmpfs /tmp
  
 EOF
