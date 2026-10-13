@@ -98,6 +98,7 @@ function change_npc_enable_bridge(mflag){
 	showhide_div("npc_version_tr", m);
 	showhide_div("npc_repo_tr", m);
 	showhide_div("npc_url_tr", m);
+	showhide_div("npc_depot_tr", m);
 }
 
 function button_restartnpc() {
@@ -272,6 +273,14 @@ function button_restartnpc() {
 												<input type="text" maxlength="200" class="input" size="60" id="npc_url" name="npc_url" placeholder="https://.../linux_mipsle_client.tar.gz" value="<% nvram_get_x("","npc_url"); %>" onkeypress="return is_string(this,event);" />
 												<span class="help-inline">留空 = 走上面的仓库 + GitHub</span>
 												<br/><span style="color:#888;">填<b>完整直链</b>(国内仓库 / 自建服务器 / 对象存储 / CDN 均可), 填了就<b>只用它</b>, 完全绕开 GitHub, 也不再查询版本号。文件须是官方那种 tar.gz(内含 npc 与 conf/)。地址变了才会重新下载。<br/>例(自备仓库+jsDelivr CDN): https://cdn.jsdelivr.net/gh/yvzz/Padavan-depot@dist/npc/yisier/linux_mipsle_client.tar.gz , 0.34.x 服务端把路径中的 yisier 换成 djylb。</span>
+											</td>
+										</tr>
+										<tr id="npc_depot_tr" style="display:none;">
+											<th width="30%" style="border-top: 0 none;">镜像站地址:</th>
+											<td style="border-top: 0 none;">
+												<input type="text" maxlength="200" class="input" size="60" id="npc_depot" name="npc_depot" placeholder="https://gitee.com/用户名/Padavan-depot/raw/dist" value="<% nvram_get_x("","npc_depot"); %>" onkeypress="return is_string(this,event);" />
+												<span class="help-inline">自备二进制仓库站(Padavan-depot)基地址</span>
+												<br/><span style="color:#888;">固件优先从「<b>基地址/npc/&lt;渠道&gt;/linux_mipsle_client.tar.gz</b>」下载, 渠道随上面的仓库二选一自动切换(yisier 或 djylb), 失败才回退 GitHub。<b>页面填了「指定版本」时不走镜像</b>(镜像站只保留最新版)。想走 CDN 可填 https://cdn.jsdelivr.net/gh/用户名/Padavan-depot@dist</span>
 											</td>
 										</tr>
 										<tr id="npc_repo_tr" style="display:none;">

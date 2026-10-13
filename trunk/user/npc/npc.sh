@@ -22,12 +22,15 @@ NPC_FALLBACK_VER="v0.26.38"
 # 页面上是二选一: yisier/nps(v0.26.x, 默认) / djylb/nps(v0.34.x, 社区维护版)。
 # 空值(老配置)按默认处理, 其它文本按旧行为兼容(自定义仓库)。
 _npc_repo_cfg=`nvram get npc_repo`
+# NPC_CHANNEL: 自备仓库站(Padavan-depot)里对应的目录名, 只有内置的两个仓库有镜像
 case "$_npc_repo_cfg" in
 "yisier/nps"|"")
 	NPC_REPO="yisier/nps"
+	NPC_CHANNEL="yisier"
 	;;
 "djylb/nps")
 	NPC_REPO="djylb/nps"
+	NPC_CHANNEL="djylb"
 	# 版本序列不同(v0.34.x), 内置回退版本 v0.26.38 不适用 —— 置空, 由 API 自动获取
 	# 或页面「指定版本」填写, 避免拼出 .../releases/download/v0.26.38/... 这种跨仓库无效 URL
 	NPC_FALLBACK_VER=""
@@ -35,10 +38,16 @@ case "$_npc_repo_cfg" in
 	;;
 *)
 	NPC_REPO="$_npc_repo_cfg"
+	NPC_CHANNEL=""
 	NPC_FALLBACK_VER=""
-	logger -t "【NPC】" "使用自定义仓库 $NPC_REPO"
+	logger -t "【NPC】" "使用自定义仓库 $NPC_REPO(自备仓库站无此渠道的镜像)"
 	;;
 esac
+# 自备二进制仓库站(Padavan-depot)国内镜像基地址。
+# 目录结构: $NPC_DEPOT/npc/<渠道>/linux_mipsle_client.tar.gz
+# 留空时用内置默认(Gitee 镜像), 也可在页面/NVRAM 里改成 jsDelivr 或自建服务器。
+NPC_DEPOT=`nvram get npc_depot`
+[ -z "$NPC_DEPOT" ] && NPC_DEPOT="https://gitee.com/vvvv/Padavan-depot/raw/dist"
 NPC_BIN_DIR=""		# 由 npc_pick_dir 决定
 NPC_BIN=""		# 二进制完整路径
 NPC_VER_FILE=""		# 版本标记文件
@@ -191,6 +200,21 @@ npc_latest_ver()
 	echo "$_npc_tag"
 }
 
+# 取自备仓库站里当前镜像的版本号(version.txt), 拿不到返回空。
+# 走国内镜像, 比 api.github.com 快且不会被墙; 失败不影响后面回退 GitHub。
+npc_depot_ver()
+{
+	[ -z "$NPC_CHANNEL" ] && return 0
+	_npc_dv=""
+	if [ -x /usr/bin/curl ]; then
+		_npc_dv=`curl -s -k --connect-timeout 5 --max-time 10 "${NPC_DEPOT}/npc/${NPC_CHANNEL}/version.txt" 2>/dev/null | head -n1 | tr -d '\r'`
+	fi
+	if [ -z "$_npc_dv" ]; then
+		_npc_dv=`wget -q -T 5 -t 1 $WGET_SSL -O - "${NPC_DEPOT}/npc/${NPC_CHANNEL}/version.txt" 2>/dev/null | head -n1 | tr -d '\r'`
+	fi
+	echo "$_npc_dv"
+}
+
 # 下载文件: 优先 curl, 其次 wget; 成功返回 0
 npc_dl()
 {
@@ -209,14 +233,28 @@ npc_ensure_bin()
 {
 	npc_version=`nvram get npc_version`
 	npc_url_cfg=`nvram get npc_url`
+	npc_use_depot=0
+	npc_dl_ver=""
 	if [ -n "$npc_url_cfg" ]; then
 		# 自定义直链: 完全绕开 GitHub(国内仓库 / 自建服务器 / 对象存储都可以)。
 		# 版本标记直接用地址本身 —— 地址变了才会重新下载。
 		npc_dl_ver="$npc_url_cfg"
 		logger -t "【NPC】" "使用自定义下载地址 $npc_url_cfg"
 	elif [ -n "$npc_version" ]; then
+		# 指定了版本: 自备仓库站里只有最新版, 这种情况不走镜像
 		npc_dl_ver="$npc_version"
-	else
+	elif [ -n "$NPC_CHANNEL" ]; then
+		# 先问自备仓库站(国内直连, 快), 拿不到再回退 GitHub API
+		npc_dl_ver=`npc_depot_ver`
+		if [ -n "$npc_dl_ver" ]; then
+			npc_use_depot=1
+			logger -t "【NPC】" "使用镜像站版本 $npc_dl_ver"
+		fi
+	fi
+	if [ -z "$npc_dl_ver" ]; then
+		if [ -n "$NPC_CHANNEL" ]; then
+			logger -t "【NPC】" "镜像站未返回版本, 回退 GitHub API"
+		fi
 		npc_dl_ver=`npc_latest_ver`
 		if [ -n "$npc_dl_ver" ]; then
 			logger -t "【NPC】" "使用最新版本 $npc_dl_ver"
@@ -241,28 +279,30 @@ npc_ensure_bin()
 	logger -t "【NPC】" "开始下载 npc $npc_dl_ver 到 $NPC_BIN_DIR ..."
 	rm -f $NPC_BIN $NPC_BIN_DIR/npc.tar.gz
 
-	# 下载源: 用户在「系统管理 -> 系统设置」填的加速源优先, 最后直连兜底。
+	# 下载源顺序: 自定义直链 → 自备仓库站(国内镜像) → 页面填的加速源 → 直连 GitHub。
 	# 与 easytier.sh 等其他插件保持同一套机制(此前 npc.sh 是硬编码 github.com,
 	# 导致页面填的 github_proxy 对它完全无效)。
-	# 注意: nps 上游(nps 官方与 yisier 的 fork)在 Gitee 都没有同步仓库,
-	# 实测 gitee.com/{yisier,ehang-io,mirrors}/nps 与 nps/nps 均为 404,
-	# 所以这里不像 EasyTier 那样内置 Gitee 镜像。
-	# 实测 GitHub 直连约 5.4MB / 2.8s (1.9MB/s), 速度本身不是瓶颈。
 	if [ -n "$npc_url_cfg" ] ; then
 		# 自定义直链本身就是完整 URL, 不再做前缀/路径拼接
 		npc_proxys="$npc_url_cfg"
 	else
-		npc_proxys=`nvram get github_proxy`
-		npc_proxys="$npc_proxys DIRECT"
+		npc_proxys=""
+		if [ "$npc_use_depot" = "1" ] ; then
+			npc_proxys="DEPOT"
+			logger -t "【NPC】" "镜像站: ${NPC_DEPOT}/npc/${NPC_CHANNEL}/${NPC_TARBALL}"
+		fi
+		npc_proxys="$npc_proxys `nvram get github_proxy` DIRECT"
 		# 诊断用: 打印本次实际生效的源(值全部来自 nvram, 页面留空则只剩 DIRECT)。
 		# 若这里出现未在页面填写过的源, 说明被「系统设置 -> 自定义脚本」里的 nvram set 写回了。
 		logger -t "【NPC】" "下载源列表: $npc_proxys"
 	fi
 
 	for npc_proxy in $npc_proxys ; do
-		# 自定义直链 = 完整 URL; 加速代理 = 前缀 + 完整 GitHub URL; DIRECT = 直连
+		# 自定义直链 = 完整 URL; DEPOT = 自备仓库站; 加速代理 = 前缀 + 完整 GitHub URL; DIRECT = 直连
 		if [ -n "$npc_url_cfg" ] ; then
 			npc_dl_url="$npc_url_cfg"
+		elif [ "$npc_proxy" = "DEPOT" ] ; then
+			npc_dl_url="${NPC_DEPOT}/npc/${NPC_CHANNEL}/${NPC_TARBALL}"
 		elif [ "$npc_proxy" = "DIRECT" ] ; then
 			npc_dl_url="https://github.com/${NPC_REPO}/releases/download/${npc_dl_ver}/${NPC_TARBALL}"
 		else

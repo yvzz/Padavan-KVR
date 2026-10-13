@@ -1095,6 +1095,9 @@ struct nvram_pair router_defaults[] = {
 	{ "npc_repo", "yisier/nps" },
 	/* 自定义下载地址(完整直链), 留空=走 GitHub 仓库 */
 	{ "npc_url", "" },
+	/* 自备二进制仓库站(Padavan-depot)国内镜像基地址, 留空时脚本用内置默认(Gitee)。
+	   目录结构: <基地址>/npc/<渠道>/linux_mipsle_client.tar.gz */
+	{ "npc_depot", "https://gitee.com/vvvv/Padavan-depot/raw/dist" },
 #endif
 
 #if defined(APP_DDNSTO)
