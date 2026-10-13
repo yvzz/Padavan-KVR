@@ -206,12 +206,21 @@ npc_depot_ver()
 {
 	[ -z "$NPC_CHANNEL" ] && return 0
 	_npc_dv=""
+	# 必须 -L: Gitee 的 raw 会 302 跳到 raw.giteeusercontent.com, 不跟随会拿到跳转页面
 	if [ -x /usr/bin/curl ]; then
-		_npc_dv=`curl -s -k --connect-timeout 5 --max-time 10 "${NPC_DEPOT}/npc/${NPC_CHANNEL}/version.txt" 2>/dev/null | head -n1 | tr -d '\r'`
+		_npc_dv=`curl -s -L -k --connect-timeout 5 --max-time 10 "${NPC_DEPOT}/npc/${NPC_CHANNEL}/version.txt" 2>/dev/null | head -n1 | tr -d '\r'`
 	fi
 	if [ -z "$_npc_dv" ]; then
 		_npc_dv=`wget -q -T 5 -t 1 $WGET_SSL -O - "${NPC_DEPOT}/npc/${NPC_CHANNEL}/version.txt" 2>/dev/null | head -n1 | tr -d '\r'`
 	fi
+	# 校验: 必须是 v 开头的版本号。拿到 302/404 的 HTML 页面时当作没取到, 交给后面的 GitHub 兜底
+	case "$_npc_dv" in
+	v[0-9]*) ;;
+	*)
+		[ -n "$_npc_dv" ] && logger -t "【NPC】" "镜像站 version.txt 返回异常, 忽略"
+		_npc_dv=""
+		;;
+	esac
 	echo "$_npc_dv"
 }
 
