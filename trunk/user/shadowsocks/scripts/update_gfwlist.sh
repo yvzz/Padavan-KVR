@@ -1,9 +1,5 @@
 #!/bin/sh
 
-github_proxys="$(nvram get github_proxy)"
-# 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
-# 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
-# 循环末尾的 DIRECT 哨兵保证自定义源失效时仍会直连重试一次。
 scriptname=$(basename $0)
 if [ ! -z "$scriptname" ] ; then
 	eval $(ps -w | grep "$scriptname" | grep -v $$ | grep -v grep | awk '{print "kill "$1";";}')
@@ -13,14 +9,10 @@ set -e -o pipefail
 [ "$1" != "force" ] && [ "$(nvram get ss_update_gfwlist)" != "1" ] && exit 0
 #GFWLIST_URL="$(nvram get gfwlist_url)"
 logger -st "gfwlist" "开始更新gfwlist  https://github.com/YW5vbnltb3Vz/domain-list-community/blob/release/gfwlist.txt"
-for proxy in $github_proxys DIRECT ; do
-# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-if [ "$proxy" = "DIRECT" ] ; then
+# 直连官方 GitHub(第三方加速源已移除)
+for proxy in DIRECT ; do
 	gh_base="https://github.com/"
-else
-	gh_base="${proxy}https://github.com/"
-fi
-	[ "$proxy" = "DIRECT" ] && proxy=""
+	proxy=""
 curl -L -k -S -o /tmp/gfwlist_list_origin.conf --connect-timeout 15 --retry 5 --max-time 180 --speed-limit 1024 --speed-time 15 "${gh_base}YW5vbnltb3Vz/domain-list-community/raw/refs/heads/release/gfwlist.txt" || wget --no-check-certificate -q -O /tmp/gfwlist_list_origin.conf "${gh_base}YW5vbnltb3Vz/domain-list-community/raw/refs/heads/release/gfwlist.txt"
 if [ "$?" = 0 ] ; then
 logger -st "gfwlist" "下载成功gfwlist.txt"

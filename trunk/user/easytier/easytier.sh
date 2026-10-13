@@ -22,20 +22,16 @@ et_extra_args="$(nvram get easytier_extra_args)"
 [ -z "$et_web_port" ] && et_web_port=22020
 [ -z "$et_web_api" ] && et_web_port=11211
 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-github_proxys="$(nvram get github_proxy)"
-# 国内镜像仓库(Gitee/对象存储)按"基地址+GitHub路径"拼 URL,
-# 与加速代理的"前缀+完整GitHub URL"模式不同。
+# 国内镜像仓库(Gitee)按"基地址+GitHub路径"拼 URL。
 # EasyTier 上游在国内 Gitee 同步了 release(easytier/EasyTier), 路径与 GitHub 完全一致,
 # 且 Gitee 对 owner 大小写不敏感(实测 /EasyTier/EasyTier/... 同样返回 200),
 # 因此把基地址换成 https://gitee.com/ 即可复用同一条路径, 无需任何目录改造。
 # 实测 9.4MB 约 4.6 秒(2MB/s), 远快于 GitHub 直连。
-# 顺序: 官方 Gitee 镜像 -> 加速代理 -> 直连, 404 由前置探测秒跳过。
+# 顺序: 官方 Gitee 镜像 -> 直连, 404 由前置探测秒跳过。
 gh_mirrors="https://gitee.com/"
-github_proxys="$gh_mirrors $github_proxys"
-# 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
-# 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
-# 末尾 DIRECT 为哨兵(循环中置空 = 直连), 保证自定义源失效时仍能下载.
-github_proxys="$github_proxys DIRECT"
+# 不再内置/接受任何第三方加速代理(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
+# 末尾 DIRECT 为哨兵(循环中置空 = 直连), 保证镜像失效时仍能下载。
+et_sources="$gh_mirrors DIRECT"
 easytier_renum=`nvram get easytier_renum`
 
 logg() {
@@ -289,21 +285,16 @@ dowload_et_official() {
 	bin_path=$(dirname "$et_core")
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
 	zip_name="easytier-linux-mipsel-${tag}.zip"
-	for proxy in $github_proxys ; do
-	# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-	gh_base=""
+	for proxy in $et_sources ; do
+	# 镜像=基地址+GitHub路径; DIRECT=直连
 	if [ "$proxy" = "DIRECT" ] ; then
 		gh_base="https://github.com/"
 	else
-		# 命中任一镜像基地址(用户自定义/官方 Gitee)则按"基地址+GitHub路径"拼
-		for _m in $gh_mirrors ; do
-			[ "$proxy" = "$_m" ] && { gh_base="$_m"; break; }
-		done
-		[ -z "$gh_base" ] && gh_base="${proxy}https://github.com/"
+		gh_base="$proxy"
 	fi
 	[ "$proxy" = "DIRECT" ] && proxy=""
 	url="${gh_base}EasyTier/EasyTier/releases/download/${tag}/${zip_name}"
-	# 前置探测: 失效的加速站(连得上但转发不通)会卡满超时, 先 6 秒短探测, 非 200/302 直接跳过
+	# 前置探测: 失效的镜像站(连得上但转发不通)会卡满超时, 先 6 秒短探测, 非 200/302 直接跳过
 	[ -n "$proxy" ] && {
 		code=$(curl -sILk --connect-timeout 4 --max-time 6 -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
 		if [ "$code" != "200" ] && [ "$code" != "302" ]; then
@@ -312,7 +303,7 @@ dowload_et_official() {
 		fi
 	}
 	logg "开始下载官方 $url"
-	# 外部硬超时 60 秒(8.9M 包在几十 KB/s 的代理源上也够下完), 超时/失败即换源,
+	# 外部硬超时 60 秒(8.9M 包在几十 KB/s 的慢源上也够下完), 超时/失败即换源,
 	# 兜底交给 watchdog 每 80 秒重试. 不再用 --speed-limit/--speed-time:
 	# 代理源"先拉取 GitHub 文件再转发"的长时间无数据阶段会被它误判中断, 反复重连卡死
 	et_dl_timeout "$url" "/tmp/${zip_name}" 60
@@ -389,17 +380,12 @@ dowload_et_mirror() {
 	bin_path=$(dirname "$et_core")
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
 	logg "开始下载镜像 https://github.com/lmq8267/EasyTier/releases/download/${tag}/easytier-mipsel-linux-muslsf.tar.gz"
-	for proxy in $github_proxys ; do
-	# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-	gh_base=""
+	for proxy in $et_sources ; do
+	# 镜像=基地址+GitHub路径; DIRECT=直连
 	if [ "$proxy" = "DIRECT" ] ; then
 		gh_base="https://github.com/"
 	else
-		# 命中任一镜像基地址(用户自定义/官方 Gitee)则按"基地址+GitHub路径"拼
-		for _m in $gh_mirrors ; do
-			[ "$proxy" = "$_m" ] && { gh_base="$_m"; break; }
-		done
-		[ -z "$gh_base" ] && gh_base="${proxy}https://github.com/"
+		gh_base="$proxy"
 	fi
 	[ "$proxy" = "DIRECT" ] && proxy=""
 	murl="${gh_base}lmq8267/EasyTier/releases/download/${tag}/easytier-mipsel-linux-muslsf.tar.gz"
@@ -521,17 +507,12 @@ dowload_web() {
 	webbin_path=$(dirname "$et_web_bin")
 	[ ! -d "$webbin_path" ] && mkdir -p "$webbin_path"
 	logg "开始下载 https://github.com/lmq8267/EasyTier/releases/download/${tag}/easytier-mipsel-linux-muslsf.tar.gz"
-	for proxy in $github_proxys ; do
-	# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-	gh_base=""
+	for proxy in $et_sources ; do
+	# 镜像=基地址+GitHub路径; DIRECT=直连
 	if [ "$proxy" = "DIRECT" ] ; then
 		gh_base="https://github.com/"
 	else
-		# 命中任一镜像基地址(用户自定义/官方 Gitee)则按"基地址+GitHub路径"拼
-		for _m in $gh_mirrors ; do
-			[ "$proxy" = "$_m" ] && { gh_base="$_m"; break; }
-		done
-		[ -z "$gh_base" ] && gh_base="${proxy}https://github.com/"
+		gh_base="$proxy"
 	fi
 	[ "$proxy" = "DIRECT" ] && proxy=""
  	length=$(wget --no-check-certificate -T 5 -t 3 "${gh_base}lmq8267/EasyTier/releases/download/${tag}/easytier-mipsel-linux-muslsf.tar.gz" -O /dev/null --spider --server-response 2>&1 | grep "[Cc]ontent-[Ll]ength" | grep -Eo '[0-9]+' | tail -n 1)

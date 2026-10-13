@@ -512,13 +512,6 @@ function updateDateTime()
 					</td>
 				</tr>
                                         <tr>
-                                            <th width="50%">GitHub 下载加速源</th>
-                                            <td>
-                                                <input type="text" maxlength="512" class="input" size="40" name="github_proxy" id="github_proxy" style="width: 260px" value="<% nvram_get_x("","github_proxy"); %>" placeholder="留空则直连官方, 多个用空格分隔, 末尾加 /" />
-                                                <span class="label label-info">留空 = 直连官方</span>
-                                            </td>
-                                        </tr>
-                                        <tr>
                                             <th width="50%"><a class="help_tooltip" href="javascript:void(0);" onmouseover="openTooltip(this,11,1)"><#LANHostConfig_x_ServerLogEnable_itemname#></a></th>
                                             <td>
                                                 <input type="text" maxlength="15" class="input" size="15" name="log_ipaddr" style="width: 145px" value="<% nvram_get_x("", "log_ipaddr"); %>" onKeyPress="return is_ipaddr(this,event);" />&nbsp;:

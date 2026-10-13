@@ -420,8 +420,6 @@ struct nvram_pair router_defaults[] = {
 	{ "reboot_schedule_enable", "0" },
 	{ "reboot_schedule", "00000000000" },
 
-	/*github下载加速源(留空=直连官方, 不启用任何第三方加速)*/
-	{ "github_proxy", "" },
 
 
 #if defined(APP_KOOLPROXY)

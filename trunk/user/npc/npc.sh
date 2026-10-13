@@ -288,9 +288,8 @@ npc_ensure_bin()
 	logger -t "【NPC】" "开始下载 npc $npc_dl_ver 到 $NPC_BIN_DIR ..."
 	rm -f $NPC_BIN $NPC_BIN_DIR/npc.tar.gz
 
-	# 下载源顺序: 自定义直链 → 自备仓库站(国内镜像) → 页面填的加速源 → 直连 GitHub。
-	# 与 easytier.sh 等其他插件保持同一套机制(此前 npc.sh 是硬编码 github.com,
-	# 导致页面填的 github_proxy 对它完全无效)。
+	# 下载源顺序: 自定义直链 → 自备仓库站(国内镜像) → 直连 GitHub。
+	# 不再读取 github_proxy(加速源功能已从固件移除)。
 	if [ -n "$npc_url_cfg" ] ; then
 		# 自定义直链本身就是完整 URL, 不再做前缀/路径拼接
 		npc_proxys="$npc_url_cfg"
@@ -300,22 +299,18 @@ npc_ensure_bin()
 			npc_proxys="DEPOT"
 			logger -t "【NPC】" "镜像站: ${NPC_DEPOT}/npc/${NPC_CHANNEL}/${NPC_TARBALL}"
 		fi
-		npc_proxys="$npc_proxys `nvram get github_proxy` DIRECT"
-		# 诊断用: 打印本次实际生效的源(值全部来自 nvram, 页面留空则只剩 DIRECT)。
-		# 若这里出现未在页面填写过的源, 说明被「系统设置 -> 自定义脚本」里的 nvram set 写回了。
+		npc_proxys="$npc_proxys DIRECT"
 		logger -t "【NPC】" "下载源列表: $npc_proxys"
 	fi
 
 	for npc_proxy in $npc_proxys ; do
-		# 自定义直链 = 完整 URL; DEPOT = 自备仓库站; 加速代理 = 前缀 + 完整 GitHub URL; DIRECT = 直连
+		# 自定义直链 = 完整 URL; DEPOT = 自备仓库站; DIRECT = 直连
 		if [ -n "$npc_url_cfg" ] ; then
 			npc_dl_url="$npc_url_cfg"
 		elif [ "$npc_proxy" = "DEPOT" ] ; then
 			npc_dl_url="${NPC_DEPOT}/npc/${NPC_CHANNEL}/${NPC_TARBALL}"
-		elif [ "$npc_proxy" = "DIRECT" ] ; then
-			npc_dl_url="https://github.com/${NPC_REPO}/releases/download/${npc_dl_ver}/${NPC_TARBALL}"
 		else
-			npc_dl_url="${npc_proxy}https://github.com/${NPC_REPO}/releases/download/${npc_dl_ver}/${NPC_TARBALL}"
+			npc_dl_url="https://github.com/${NPC_REPO}/releases/download/${npc_dl_ver}/${NPC_TARBALL}"
 		fi
 		npc_dl "$npc_dl_url" "$NPC_BIN_DIR/npc.tar.gz"
 		[ -s "$NPC_BIN_DIR/npc.tar.gz" ] && break

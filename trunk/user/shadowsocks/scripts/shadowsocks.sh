@@ -33,10 +33,6 @@ ss_turn=`nvram get ss_turn`
 lan_con=`nvram get lan_con`
 GLOBAL_SERVER=`nvram get global_server`
 socks=""
-github_proxys="$(nvram get github_proxy)"
-# 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
-# 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
-# 循环末尾的 DIRECT 哨兵保证自定义源失效时仍会直连重试一次。
 
 find_bin() {
 	case "$1" in
@@ -62,14 +58,10 @@ find_bin() {
 		[ ! -f "$ret" ] && [ -f "$etcxbin" ] && ret="$etcxbin" && echo "$(date "+%Y-%m-%d %H:%M:%S") : 找到$ret " >>/tmp/ssrplus.log
 		if [ ! -f "$ret" ]; then
 			echo "$(date "+%Y-%m-%d %H:%M:%S") : 未找到v2ray 开始在线下载... " >>/tmp/ssrplus.log
-			for proxy in $github_proxys DIRECT ; do
-			# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-			if [ "$proxy" = "DIRECT" ] ; then
+			# 直连官方 GitHub(第三方加速源已移除)
+			for proxy in DIRECT ; do
 				gh_base="https://github.com/"
-			else
-				gh_base="${proxy}https://github.com/"
-			fi
-				[ "$proxy" = "DIRECT" ] && proxy=""
+				proxy=""
    				length=$(wget --no-check-certificate -T 5 -t 3 "${gh_base}lmq8267/padavan-KVR/blob/main/trunk/user/v2ray/v2ray" -O /dev/null --spider --server-response 2>&1 | grep "[Cc]ontent-[Ll]ength" | grep -Eo '[0-9]+' | tail -n 1)
  				length=`expr $length + 512000`
 				length=`expr $length / 1048576`
@@ -110,14 +102,10 @@ find_bin() {
 		[ ! -f "$ret" ] && [ -f "$etcxbin" ] && ret="$etcxbin" && echo "$(date "+%Y-%m-%d %H:%M:%S") : 找到$ret " >>/tmp/ssrplus.log
 		if [ ! -f "$ret" ]; then
 			echo "$(date "+%Y-%m-%d %H:%M:%S") : 未找到xray 开始在线下载... " >>/tmp/ssrplus.log
-			for proxy in $github_proxys DIRECT ; do
-			# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-			if [ "$proxy" = "DIRECT" ] ; then
+			# 直连官方 GitHub(第三方加速源已移除)
+			for proxy in DIRECT ; do
 				gh_base="https://github.com/"
-			else
-				gh_base="${proxy}https://github.com/"
-			fi
-				[ "$proxy" = "DIRECT" ] && proxy=""
+				proxy=""
    				length=$(wget --no-check-certificate -T 5 -t 3 "${gh_base}lmq8267/padavan-KVR/blob/main/trunk/user/xray/xray" -O /dev/null --spider --server-response 2>&1 | grep "[Cc]ontent-[Ll]ength" | grep -Eo '[0-9]+' | tail -n 1)
  				length=`expr $length + 512000`
 				length=`expr $length / 1048576`
@@ -149,14 +137,10 @@ find_bin() {
 		[ ! -f "$ret" ] && [ -f "$etcbin" ] && ret="$etcbin" && echo "$(date "+%Y-%m-%d %H:%M:%S") : 找到$ret " >>/tmp/ssrplus.log
 		if [ ! -f "$ret" ]; then
 			echo "$(date "+%Y-%m-%d %H:%M:%S") : 未找到trojan 开始在线下载... " >>/tmp/ssrplus.log
-			for proxy in $github_proxys DIRECT ; do
-			# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-			if [ "$proxy" = "DIRECT" ] ; then
+			# 直连官方 GitHub(第三方加速源已移除)
+			for proxy in DIRECT ; do
 				gh_base="https://github.com/"
-			else
-				gh_base="${proxy}https://github.com/"
-			fi
-				[ "$proxy" = "DIRECT" ] && proxy=""
+				proxy=""
    				length=$(wget --no-check-certificate -T 5 -t 3 "${gh_base}lmq8267/padavan-KVR/blob/main/trunk/user/trojan/trojan" -O /dev/null --spider --server-response 2>&1 | grep "[Cc]ontent-[Ll]ength" | grep -Eo '[0-9]+' | tail -n 1)
  				length=`expr $length + 512000`
 				length=`expr $length / 1048576`

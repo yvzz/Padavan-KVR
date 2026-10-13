@@ -9,10 +9,6 @@ http_username=`nvram get http_username`
 caddyf_wan_port=`nvram get caddyf_wan_port`
 caddyw_wan_port=`nvram get caddyw_wan_port`
 caddy_wip6=`nvram get caddy_wip6`
-github_proxys="$(nvram get github_proxy)"
-# 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
-# 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
-# 循环末尾的 DIRECT 哨兵保证自定义源失效时仍会直连重试一次。
 scriptfilepath=$(cd "$(dirname "$0")"; pwd)/$(basename $0)
 caddy_renum=`nvram get caddy_renum`
 
@@ -51,14 +47,10 @@ caddy_dl() {
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
        if [ ! -f "$caddy_dir" ] || [[ "$($caddy_dir -h 2>&1 | wc -l)" -lt 2 ]] ; then
 		logger -t "【caddy】" "找不到caddy_filebrowser文件，下载caddy_filebrowser程序"
-		for proxy in $github_proxys DIRECT ; do
-		# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-		if [ "$proxy" = "DIRECT" ] ; then
+		# 直连官方 GitHub(第三方加速源已移除)
+		for proxy in DIRECT ; do
 			gh_base="https://github.com/"
-		else
-			gh_base="${proxy}https://github.com/"
-		fi
-			[ "$proxy" = "DIRECT" ] && proxy=""
+			proxy=""
   		length=$(wget --no-check-certificate -T 5 -t 3 "${gh_base}lmq8267/padavan-KVR/blob/main/trunk/user/caddy/caddy_filebrowser" -O /dev/null --spider --server-response 2>&1 | grep "[Cc]ontent-[Ll]ength" | grep -Eo '[0-9]+' | tail -n 1)
  		length=`expr $length + 512000`
 		length=`expr $length / 1048576`
@@ -97,14 +89,10 @@ caddy_dl2() {
        		[ -z "$tag" ] && tag="$( curl -Lk --connect-timeout 3 --max-time 8 --user-agent "$user_agent" -s  https://api.github.com/repos/lmq8267/caddy/releases/latest  2>&1 | grep 'tag_name' | cut -d\" -f4 )"
         	fi
 		[ -z "$tag" ] && logger -t "【caddy】" "无法获取最新版本,使用 v2.8.4" && tag="v2.8.4"
-		for proxy in $github_proxys DIRECT ; do
-		# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-		if [ "$proxy" = "DIRECT" ] ; then
+		# 直连官方 GitHub(第三方加速源已移除)
+		for proxy in DIRECT ; do
 			gh_base="https://github.com/"
-		else
-			gh_base="${proxy}https://github.com/"
-		fi
-			[ "$proxy" = "DIRECT" ] && proxy=""
+			proxy=""
   		length=$(wget --no-check-certificate -T 5 -t 3 "${gh_base}lmq8267/caddy/releases/download/${tag}/caddy-mipsel-upx" -O /dev/null --spider --server-response 2>&1 | grep "[Cc]ontent-[Ll]ength" | grep -Eo '[0-9]+' | tail -n 1)
  		length=`expr $length + 512000`
 		length=`expr $length / 1048576`

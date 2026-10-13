@@ -28,10 +28,6 @@ vntcli_wan="$(nvram get vntcli_wan)"
 vntcli_disable_relay="$(nvram get vntcli_disable_relay)"
 
 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-github_proxys="$(nvram get github_proxy)"
-# 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
-# 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
-# 循环末尾的 DIRECT 哨兵保证自定义源失效时仍会直连重试一次。
 if [ ! -z "$vntcli_port" ] ; then
 	if [ ! -z "$(echo $vntcli_port | grep ',' )" ] ; then
 		vnt_tcp_port="${vntcli_port%%,*}"
@@ -99,15 +95,10 @@ dowload_vntcli() {
 	bin_path=$(dirname "$VNTCLI")
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
 	logger -t "【VNT客户端】" "开始下载 https://github.com/lmq8267/vnt-cli/releases/download/${tag}/vnt-cli_mipsel-unknown-linux-musl 到 $VNTCLI"
-	for proxy in $github_proxys DIRECT ; do
-	# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-	if [ "$proxy" = "DIRECT" ] ; then
+	# 直连官方 GitHub(第三方加速源已移除)
+	for proxy in DIRECT ; do
 		gh_base="https://github.com/"
-	else
-		gh_base="${proxy}https://github.com/"
-	fi
-	[ "$proxy" = "DIRECT" ] && proxy=""
-	logger -t "【VNT客户端】" "尝试源: ${proxy:-直连}"
+		proxy=""
  	length=$(wget --no-check-certificate -T 5 -t 3 "${gh_base}lmq8267/vnt-cli/releases/download/${tag}/vnt-cli_mipsel-unknown-linux-musl" -O /dev/null --spider --server-response 2>&1 | grep "[Cc]ontent-[Ll]ength" | grep -Eo '[0-9]+' | tail -n 1)
  	length=`expr $length + 512000`
 	length=`expr $length / 1048576`

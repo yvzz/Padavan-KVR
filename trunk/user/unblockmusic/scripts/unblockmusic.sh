@@ -135,23 +135,15 @@ done
 [ -z "$UnblockNeteaseMusic" ] && UnblockNeteaseMusic="/tmp/var/UnblockNeteaseMusic"
 }
 
-github_proxys="$(nvram get github_proxy)"
-# 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
-# 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
-# 循环末尾的 DIRECT 哨兵保证自定义源失效时仍会直连重试一次。
 
 dl_wyy() {
 	if [ ! -f "/usr/bin/UnblockNeteaseMusic" ]; then
 		logger -t "【音乐解锁】" "没有主程序，开始下载程序"
 		
-		for proxy in $github_proxys DIRECT ; do
-		# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-		if [ "$proxy" = "DIRECT" ] ; then
+		# 直连官方 GitHub(第三方加速源已移除)
+		for proxy in DIRECT ; do
 			gh_base="https://github.com/"
-		else
-			gh_base="${proxy}https://github.com/"
-		fi
-			[ "$proxy" = "DIRECT" ] && proxy=""
+			proxy=""
   		length=$(wget --no-check-certificate -T 5 -t 3 "${gh_base}lmq8267/padavan-KVR/blob/main/trunk/user/unblockmusic/UnblockNeteaseMusic" -O /dev/null --spider --server-response 2>&1 | grep "[Cc]ontent-[Ll]ength" | grep -Eo '[0-9]+' | tail -n 1)
  		length=`expr $length + 512000`
 		length=`expr $length / 1048576`

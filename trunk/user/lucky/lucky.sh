@@ -10,10 +10,6 @@ lucky_tag=`nvram get lucky_tag`
 lucky_extra=`nvram get lucky_extra`
 [ -z "$lucky_cmd" ] && lucky_cmd="/etc/storage/lucky"
 [ -z "$lucky_enable" ] && lucky_enable=0 && nvram set lucky_enable=0
-github_proxys="$(nvram get github_proxy)"
-# 加速源: 只使用用户在「系统管理 -> 系统设置」页面自定义的 github_proxy(留空 = 直连官方),
-# 不再内置第三方加速站(多数已失效 HTTP 000, 逐个探测纯属浪费时间);
-# 循环末尾的 DIRECT 哨兵保证自定义源失效时仍会直连重试一次。
 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 logg  () {
   echo -e "\033[36;33m$(date +'%Y-%m-%d %H:%M:%S'):\033[0m\033[35;1m $1 \033[0m"
@@ -103,14 +99,10 @@ lucky_dl() {
 	logg "如下载失败请在开机启动脚本里自定义下载地址 nvram set lucky_url=你的下载链接.tar.gz"
  	bin_path=$(dirname "$PROG")
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
-	for proxy in $github_proxys DIRECT ; do
-	# 加速代理=前缀+完整GitHub URL; DIRECT=直连
-	if [ "$proxy" = "DIRECT" ] ; then
+	# 直连官方 GitHub(第三方加速源已移除)
+	for proxy in DIRECT ; do
 		gh_base="https://github.com/"
-	else
-		gh_base="${proxy}https://github.com/"
-	fi
-		[ "$proxy" = "DIRECT" ] && proxy=""
+		proxy=""
  	length=$(wget --no-check-certificate -T 5 -t 3 "${lk_url}" -O /dev/null --spider --server-response 2>&1 | grep "[Cc]ontent-[Ll]ength" | grep -Eo '[0-9]+' | tail -n 1)
  	length=`expr $length + 512000`
 	length=`expr $length / 1048576`

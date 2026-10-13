@@ -10,24 +10,6 @@ fi
 mkdir -p /tmp/dnsmasq.dom
 logger -t "为防止dnsmasq启动失败，创建/tmp/dnsmasq.dom/"
 
-# 清理旧固件残留的 GitHub 加速源:
-# 上游固件曾把一批第三方加速站硬编码进脚本(github.moeyy.xyz / gh.llkk.cc /
-# mirror.ghproxy.com / ghproxy.net / ghfast.top / gh-proxy.com), 多数已失效(HTTP 000)。
-# 这些值一旦被写进 nvram, 刷机保留配置(breed 刷固件默认不清 nvram)就会跟着留下来,
-# 页面清空后也会被「自定义脚本」里的 nvram set 写回, 表现为"删了/刷机了又自动回来"。
-# 这里每次开机剔除一次, 只删这些已知域名, 用户在页面填的其它地址不受影响。
-# 不需要此清理的话, 注释掉下面整个 if 块即可。
-_gh_proxy_old="$(nvram get github_proxy)"
-if [ -n "$_gh_proxy_old" ] ; then
-	case "$_gh_proxy_old" in
-	*github.moeyy.xyz*|*gh.llkk.cc*|*mirror.ghproxy.com*|*ghproxy.net*|*ghfast.top*|*gh-proxy.com*)
-		nvram set github_proxy=""
-		nvram commit
-		logger -t "自动启动" "已清理失效的 GitHub 加速源: $_gh_proxy_old (页面留空 = 直连官方)"
-		;;
-	esac
-fi
-
 #wifi中继脚本
 if [ ! -x /etc/storage/sh_ezscript.sh ]; then
 	cp /etc_ro/sh_ezscript.sh /etc/storage/sh_ezscript.sh
