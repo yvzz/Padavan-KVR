@@ -36,11 +36,17 @@ if [ "$1" == "-l" ] ; then
 	size_var="2M"
 fi
 
-mount -t tmpfs tmpfs /dev   -o size=8K
+# /dev 原本只给 8K, 而 tmpfs 上一个设备节点就占一个 4K 块 —— mdev -s 创建
+# null/zero/urandom/random/tty/... 时很快把 8K 占满, 之后的节点静默创建失败,
+# 且不报错。表现为 httpd 的 daemon() 打不开 /dev/null 直接报
+# "daemon: No such device", 进程起不来 -> web 后台打不开(K2P 实测)。
+# tmpfs 按需分配物理内存, 放宽上限不会多占内存, 这里给 1M 留足余量。
+mount -t tmpfs tmpfs /dev   -o size=1M
 mount -t tmpfs tmpfs /etc   -o size=$size_etc,noatime
 mount -t tmpfs tmpfs /home  -o size=1M
-mount -t tmpfs tmpfs /media -o size=8K
-mount -t tmpfs tmpfs /mnt   -o size=8K
+# /media /mnt 同理放宽(作为挂载点本身够用, 但在其下建目录/临时文件时 8K 太紧)
+mount -t tmpfs tmpfs /media -o size=512K
+mount -t tmpfs tmpfs /mnt   -o size=512K
 mount -t tmpfs tmpfs /tmp   -o size=$size_tmp
 mount -t tmpfs tmpfs /var   -o size=$size_var
 
@@ -57,6 +63,22 @@ mount -t devpts devpts /dev/pts
 
 ln -sf /etc_ro/mdev.conf /etc/mdev.conf
 mdev -s
+
+# 兜底校验: 设备节点创建是"静默失败"的(/dev 空间不足时 mdev 不报错),
+# 缺 /dev/null 会让 httpd 的 daemon() 报 "No such device" 而整个 web 后台起不来。
+# 这里补建关键节点并记日志, 免得下次排障又要从头猜。
+# 用 while read 而不是 `set --`(后者会覆盖脚本自身的位置参数 $1)
+while read _dn _maj _min ; do
+	[ -n "$_dn" ] || continue
+	[ -c "/dev/$_dn" ] || mknod "/dev/$_dn" c "$_maj" "$_min" 2>/dev/null
+done <<EOF
+null 1 3
+zero 1 5
+full 1 7
+random 1 8
+urandom 1 9
+EOF
+[ -c /dev/null ] || logger -t "dev_init" "警告: /dev/null 缺失, httpd 可能无法启动(检查 /dev tmpfs 容量)"
 
 # create dirs
 mkdir -p -m 777 /var/lock
