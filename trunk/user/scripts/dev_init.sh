@@ -20,9 +20,11 @@ case "$mem_total" in
 ''|*[!0-9]*) mem_total=0 ;;
 esac
 if [ "$mem_total" -ge 200000 ] ; then
-	# ≥256M(含 512M 的 R2100/RM2100)
-	size_tmp="64M"
-	size_var="8M"
+	# ≥256M(含 512M 的 R2100/RM2100)。
+	# 48M 足够: EasyTier(约 9M) + npc(16.2M) 常驻约 25M, 加日志与下载峰值后仍有
+	# 一倍余量; 64M 实测过剩(tmpfs 上限只是天花板, 再大也不会更快)。
+	size_tmp="48M"
+	size_var="6M"
 elif [ "$mem_total" -ge 90000 ] ; then
 	# ≥128M(K2P、小米mini 等主流机型)。
 	# 36M 是实测折中: EasyTier(约 9M) + npc(16.2M) 常驻约 25M, 再加日志与下载峰值,
