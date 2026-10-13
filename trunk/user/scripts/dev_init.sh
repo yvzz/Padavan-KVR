@@ -8,6 +8,27 @@ size_tmp="24M"
 size_var="4M"
 size_etc="6M"
 
+# /dev 原本只给 8K, 而 tmpfs 上一个设备节点就占一个 4K 块 —— mdev -s 创建
+# null/zero/urandom/random/tty/... 时很快把 8K 占满, 之后的节点静默创建失败,
+# 且不报错。表现为 httpd 的 daemon() 打不开 /dev/null 直接报
+# "daemon: No such device", 进程起不来 -> web 后台打不开(K2P 实测)。
+# tmpfs 按需分配物理内存, 放宽上限不会多占内存, 这里给 1M 留足余量。
+mount -t tmpfs tmpfs /dev   -o size=1M
+
+# 关键: 必须在**任何 2>/dev/null 之前**就把 /dev/null 建成字符设备。
+# 本脚本后面大量使用 `cmd 2>/dev/null`, 而 shell 处理重定向时若 /dev/null 不存在,
+# 会把它创建成**普通文件**(-rw-rw-rw-, 0 字节)。之后 mdev -s 用 mknod 建同名设备
+# 会撞 EEXIST 并**静默跳过**, 于是 /dev/null 永远是普通文件 ——
+# httpd 的 daemon() 打不开它, 报 "daemon: No such device", web 后台起不来。
+# 所以这里挂载完立刻手工建好几个关键节点, 且这条命令本身不能用 2>/dev/null。
+mknod /dev/null    c 1 3
+mknod /dev/zero    c 1 5
+mknod /dev/full    c 1 7
+mknod /dev/random  c 1 8
+mknod /dev/urandom c 1 9
+mknod /dev/tty     c 5 0
+chmod 666 /dev/null /dev/zero /dev/full /dev/random /dev/urandom /dev/tty
+
 # 按实际内存上调 /tmp: 运行期下载二进制的插件(EasyTier 约 9M、npc 约 16M)都落在
 # /tmp, 24M 扣除日志后经常只剩 20M 上下, 刚好卡在临界值 —— 表现为"同一份好包
 # 时好时坏"(解包写出残片)。tmpfs 是按需占用物理内存的, 上限调大不会立刻吃内存,
@@ -38,12 +59,6 @@ if [ "$1" == "-l" ] ; then
 	size_var="2M"
 fi
 
-# /dev 原本只给 8K, 而 tmpfs 上一个设备节点就占一个 4K 块 —— mdev -s 创建
-# null/zero/urandom/random/tty/... 时很快把 8K 占满, 之后的节点静默创建失败,
-# 且不报错。表现为 httpd 的 daemon() 打不开 /dev/null 直接报
-# "daemon: No such device", 进程起不来 -> web 后台打不开(K2P 实测)。
-# tmpfs 按需分配物理内存, 放宽上限不会多占内存, 这里给 1M 留足余量。
-mount -t tmpfs tmpfs /dev   -o size=1M
 mount -t tmpfs tmpfs /etc   -o size=$size_etc,noatime
 mount -t tmpfs tmpfs /home  -o size=1M
 # /media /mnt 同理放宽(作为挂载点本身够用, 但在其下建目录/临时文件时 8K 太紧)
@@ -72,15 +87,25 @@ mdev -s
 # 用 while read 而不是 `set --`(后者会覆盖脚本自身的位置参数 $1)
 while read _dn _maj _min ; do
 	[ -n "$_dn" ] || continue
-	[ -c "/dev/$_dn" ] || mknod "/dev/$_dn" c "$_maj" "$_min" 2>/dev/null
+	# 注意: 不能只判 [ -c ] 就直接 mknod —— 若该路径已被建成普通文件
+	# (见上方说明), mknod 会撞 EEXIST 而静默失败。必须先删再建。
+	if [ ! -c "/dev/$_dn" ] ; then
+		rm -f "/dev/$_dn"
+		mknod "/dev/$_dn" c "$_maj" "$_min"
+		chmod 666 "/dev/$_dn"
+	fi
 done <<EOF
 null 1 3
 zero 1 5
 full 1 7
 random 1 8
 urandom 1 9
+tty 5 0
 EOF
-[ -c /dev/null ] || logger -t "dev_init" "警告: /dev/null 缺失, httpd 可能无法启动(检查 /dev tmpfs 容量)"
+if [ ! -c /dev/null ] ; then
+	logger -t "dev_init" "警告: /dev/null 不是字符设备, httpd 将无法启动(检查 /dev tmpfs 容量)"
+	logger -t "dev_init" "当前 /dev/null: $(ls -l /dev/null 2>&1)"
+fi
 
 # create dirs
 mkdir -p -m 777 /var/lock
