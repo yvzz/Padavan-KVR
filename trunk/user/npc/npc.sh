@@ -213,6 +213,82 @@ npc_dl()
 	[ -s "$2" ]
 }
 
+# 二进制是否可用。
+# 下载被中断(断电/断网/双实例并发)时 tar 可能只解出半个文件, -s 判断为"存在",
+# 但跑起来立刻崩溃退出 —— 表现为"npc 已启动"然后 2 秒后"启动失败", 且因为
+# 版本标记已写入, 后续每次重启都认为"已下载过"而一直复用这个坏文件。
+# 这里用 ELF 魔数 + 最小体积两个条件把它拦出来。
+npc_bin_ok()
+{
+	[ -s "$NPC_BIN" ] || return 1
+	_npc_sz=`stat -c %s "$NPC_BIN" 2>/dev/null`
+	[ -n "$_npc_sz" ] || return 1
+	# npc 本体约 10MB, 截断的残片远小于此; 阈值取 2MB 足够区分
+	[ "$_npc_sz" -lt 2097152 ] && return 1
+	# ELF 魔数 7f 45 4c 46; 不是 ELF(比如 HTML 错误页)直接判坏
+	[ "`head -c 4 "$NPC_BIN" 2>/dev/null | od -An -tx1 | tr -d ' \n'`" = "7f454c46" ] || return 1
+	return 0
+}
+
+# 下载并解包一次(只负责把包拿下来解开, 结果由调用方判断)。
+# 参数: $1=版本 $2=是否走镜像站 $3=自定义直链(可空)
+# 下载源顺序: 自定义直链 → 自备仓库站(国内镜像) → 直连 GitHub。
+# 不再读取 github_proxy(加速源功能已从固件移除)。
+npc_dl_once()
+{
+	_dl_ver="$1"
+	_use_depot="$2"
+	_url_cfg="$3"
+
+	if [ -n "$_url_cfg" ] ; then
+		# 自定义直链本身就是完整 URL, 不再做前缀/路径拼接
+		npc_proxys="$_url_cfg"
+	else
+		npc_proxys=""
+		if [ "$_use_depot" = "1" ] ; then
+			npc_proxys="DEPOT"
+			logger -t "【NPC】" "镜像站: ${NPC_DEPOT}/npc/${NPC_CHANNEL}/${NPC_TARBALL}"
+		fi
+		npc_proxys="$npc_proxys DIRECT"
+		logger -t "【NPC】" "下载源列表: $npc_proxys"
+	fi
+
+	for npc_proxy in $npc_proxys ; do
+		# 自定义直链 = 完整 URL; DEPOT = 自备仓库站; DIRECT = 直连
+		if [ -n "$_url_cfg" ] ; then
+			npc_dl_url="$_url_cfg"
+		elif [ "$npc_proxy" = "DEPOT" ] ; then
+			npc_dl_url="${NPC_DEPOT}/npc/${NPC_CHANNEL}/${NPC_TARBALL}"
+		else
+			npc_dl_url="https://github.com/${NPC_REPO}/releases/download/${_dl_ver}/${NPC_TARBALL}"
+		fi
+		npc_dl "$npc_dl_url" "$NPC_BIN_DIR/npc.tar.gz"
+		if [ ! -s "$NPC_BIN_DIR/npc.tar.gz" ]; then
+			logger -t "【NPC】" "源 ${npc_proxy} 下载失败, 换源重试"
+			continue
+		fi
+		# 关键: 下载被中断时包是截断的, -s 判断不出来, 而 tar 仍会解出半个
+		# 二进制(跑起来立刻崩, 表现为"已启动"后 2 秒"启动失败")。
+		# gzip -t 能验出这种残包, 直接换源重下。
+		gzip -t "$NPC_BIN_DIR/npc.tar.gz" >/dev/null 2>&1
+		_npc_gz=$?
+		# 127 = 环境里没有 gzip, 这种情况下无法校验, 不能因此判失败
+		if [ "$_npc_gz" = "0" ] || [ "$_npc_gz" = "127" ] ; then
+			break
+		fi
+		logger -t "【NPC】" "源 ${npc_proxy} 下载不完整(gzip 校验失败), 换源重试"
+		rm -f "$NPC_BIN_DIR/npc.tar.gz"
+	done
+
+	if [ -s "$NPC_BIN_DIR/npc.tar.gz" ]; then
+		tar -xz -C $NPC_BIN_DIR -f $NPC_BIN_DIR/npc.tar.gz 2>/dev/null
+		rm -f $NPC_BIN_DIR/npc.tar.gz
+		# 包内为 npc 与 conf/; 个别版本会多套一层 npc/ 目录
+		[ -f $NPC_BIN_DIR/nps/npc ] && mv -f $NPC_BIN_DIR/nps/npc $NPC_BIN
+		rm -rf $NPC_BIN_DIR/nps $NPC_BIN_DIR/conf
+	fi
+}
+
 # 确保 $NPC_BIN 存在且版本匹配
 npc_ensure_bin()
 {
@@ -253,57 +329,36 @@ npc_ensure_bin()
 
 	mkdir -p "$NPC_BIN_DIR" 2>/dev/null
 
-	# 已存在且版本一致, 无需重新下载
-	if [ -s "$NPC_BIN" ] && [ "`cat $NPC_VER_FILE 2>/dev/null`" = "$npc_dl_ver" ]; then
+	# 已存在、版本一致、且二进制本身完整, 才跳过下载。
+	# 只比对版本是不够的: 截断的残片也会带着正确的版本标记, 于是永远不会被重下。
+	if [ -s "$NPC_BIN" ] && [ "`cat $NPC_VER_FILE 2>/dev/null`" = "$npc_dl_ver" ] && npc_bin_ok ; then
 		return 0
 	fi
+	# 走到这里说明不存在/版本变了/文件坏了 —— 明确提示一下, 排障时一眼能看出
+	[ -s "$NPC_BIN" ] && logger -t "【NPC】" "已存在的 npc 二进制不完整或版本不匹配, 重新下载"
 
 	logger -t "【NPC】" "开始下载 npc $npc_dl_ver 到 $NPC_BIN_DIR ..."
 	rm -f $NPC_BIN $NPC_BIN_DIR/npc.tar.gz
-
-	# 下载源顺序: 自定义直链 → 自备仓库站(国内镜像) → 直连 GitHub。
-	# 不再读取 github_proxy(加速源功能已从固件移除)。
-	if [ -n "$npc_url_cfg" ] ; then
-		# 自定义直链本身就是完整 URL, 不再做前缀/路径拼接
-		npc_proxys="$npc_url_cfg"
-	else
-		npc_proxys=""
-		if [ "$npc_use_depot" = "1" ] ; then
-			npc_proxys="DEPOT"
-			logger -t "【NPC】" "镜像站: ${NPC_DEPOT}/npc/${NPC_CHANNEL}/${NPC_TARBALL}"
-		fi
-		npc_proxys="$npc_proxys DIRECT"
-		logger -t "【NPC】" "下载源列表: $npc_proxys"
-	fi
-
-	for npc_proxy in $npc_proxys ; do
-		# 自定义直链 = 完整 URL; DEPOT = 自备仓库站; DIRECT = 直连
-		if [ -n "$npc_url_cfg" ] ; then
-			npc_dl_url="$npc_url_cfg"
-		elif [ "$npc_proxy" = "DEPOT" ] ; then
-			npc_dl_url="${NPC_DEPOT}/npc/${NPC_CHANNEL}/${NPC_TARBALL}"
-		else
-			npc_dl_url="https://github.com/${NPC_REPO}/releases/download/${npc_dl_ver}/${NPC_TARBALL}"
-		fi
-		npc_dl "$npc_dl_url" "$NPC_BIN_DIR/npc.tar.gz"
-		[ -s "$NPC_BIN_DIR/npc.tar.gz" ] && break
-		logger -t "【NPC】" "源 ${npc_proxy} 下载失败, 换源重试"
-	done
-
-	if [ -s "$NPC_BIN_DIR/npc.tar.gz" ]; then
-		tar -xz -C $NPC_BIN_DIR -f $NPC_BIN_DIR/npc.tar.gz 2>/dev/null
-		rm -f $NPC_BIN_DIR/npc.tar.gz
-		# 包内为 npc 与 conf/; 个别版本会多套一层 npc/ 目录
-		[ -f $NPC_BIN_DIR/nps/npc ] && mv -f $NPC_BIN_DIR/nps/npc $NPC_BIN
-		rm -rf $NPC_BIN_DIR/nps $NPC_BIN_DIR/conf
-	fi
+	npc_dl_once "$npc_dl_ver" "$npc_use_depot" "$npc_url_cfg"
 
 	if [ -s "$NPC_BIN" ]; then
 		chmod 755 $NPC_BIN
-		echo "$npc_dl_ver" > $NPC_VER_FILE
-		nvram set npc_ver="$npc_dl_ver"
-		logger -t "【NPC】" "npc $npc_dl_ver 下载完成"
-		return 0
+		if ! npc_bin_ok ; then
+			# 解出来的不完整(下载被截断): 删掉再下一次, 只重试一轮,
+			# 免得包本身就是坏的时空转。
+			logger -t "【NPC】" "解包得到的 npc 不完整, 删除后重新下载"
+			rm -f $NPC_BIN $NPC_VER_FILE $NPC_BIN_DIR/npc.tar.gz 2>/dev/null
+			npc_dl_once "$npc_dl_ver" "$npc_use_depot" "$npc_url_cfg"
+			chmod 755 $NPC_BIN 2>/dev/null
+		fi
+		if npc_bin_ok ; then
+			echo "$npc_dl_ver" > $NPC_VER_FILE
+			nvram set npc_ver="$npc_dl_ver"
+			logger -t "【NPC】" "npc $npc_dl_ver 下载完成"
+			return 0
+		fi
+		logger -t "【NPC】" "npc 二进制校验失败(下载被截断?), 已删除, 稍后重试"
+		rm -f $NPC_BIN $NPC_VER_FILE 2>/dev/null
 	fi
 
 	nvram set npc_ver="下载失败"
@@ -350,7 +405,33 @@ EOF
 		logger -t "【NPC】" "npc启动成功 (`pidof npc | wc -w` 个实例)"
 		return 0
 	fi
-	logger -t "【NPC】" "npc启动失败, 请检查配置"
+
+	# 进程起来后 2 秒内就退出 = 二进制多半是坏的(上次下载被断电/断网打断,
+	# tar 解出半个文件但 -s 判断为"存在", 版本标记也已写入, 于是之后每次
+	# 重启都以为"已下载过"而一直复用这个坏文件 —— 老逻辑只报"请检查配置",
+	# 5 分钟一次的 cron 就永远原地打转)。这里删掉二进制和版本标记强制重下,
+	# 再启动一次; 仍未活下来才认定是配置问题。
+	if [ "`nvram get npc_enable`" != "1" ] ; then
+		logger -t "【NPC】" "npc 未启用, 跳过重新下载"
+		return 1
+	fi
+	logger -t "【NPC】" "npc 启动后立即退出, 怀疑二进制损坏, 删除 $NPC_BIN 后重新下载"
+	npc_kill_wait
+	rm -f $NPC_BIN $NPC_VER_FILE $NPC_BIN_DIR/npc.tar.gz 2>/dev/null
+	rm -f /tmp/npc/npc /tmp/npc/npc.ver /tmp/npc/npc.tar.gz 2>/dev/null
+	nvram set npc_ver=""
+	if ! npc_ensure_bin ; then
+		logger -t "【NPC】" "重新下载失败, 请检查网络(下次周期任务会再试)"
+		return 1
+	fi
+	/etc/storage/npc_script.sh
+	sleep 2
+	npc_single_check
+	if npc_alive ; then
+		logger -t "【NPC】" "npc 重新下载后启动成功 (`pidof npc | wc -w` 个实例)"
+		return 0
+	fi
+	logger -t "【NPC】" "npc启动失败, 请检查配置(服务器地址/vkey/服务端版本是否匹配)"
 	return 1
 }
 
