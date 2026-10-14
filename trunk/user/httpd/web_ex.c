@@ -3975,7 +3975,16 @@ apply_cgi(const char *url, webs_t wp)
 	else if (!strcmp(value, " CleareasytierLog "))
 	{
 #if defined(APP_EASYTIER)
-		unlink("/tmp/easytier.log");
+		/* 不能用 unlink(): /tmp/easytier.log 的 fd 由 easytier-core 持有,
+		 * 删掉目录项后进程仍往那个已删除的 inode 里写 —— 空间照样被占, 但
+		 * ls/du 全都看不见(df 却能看出来), 变成一笔"隐形欠账", 直到进程
+		 * 退出才释放。这里改成截断: inode 不变, 占用立刻归还, 文件也还在。
+		 */
+		do {
+			FILE *f_etlog = fopen("/tmp/easytier.log", "w");
+			if (f_etlog)
+				fclose(f_etlog);
+		} while (0);
 #endif
 		websRedirect(wp, current_url);
 		return 0;
