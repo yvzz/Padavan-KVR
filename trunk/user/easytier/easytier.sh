@@ -691,10 +691,14 @@ core_keep() {
 	# 只保留"进程掉线→start"一条核心规则.
 	# 防火墙/端口失效不再触发完整 start(那会并发重下载、互相踩踏耗尽小 /tmp),
 	# 防火墙规则在 start_core 成功后的 et_rules 里会随进程一起重建.
+	# 另外挂一条日志体积守护: /tmp/easytier.log 由 easytier-core 直接持有 fd 写入,
+	# 这里截断只能释放实际占用的块, 进程的写偏移不会归零 —— 它下一次写会把文件撑回
+	# 原来的"逻辑大小"(前面全是 '\0' 的稀疏文件, du 很小但 ls -l 看着很大)。
+	# 所以阈值定小一点(1M), 并且页面侧只展示尾部(见 web_ex.c 的 easytier_tail.log)。
 	cat >> "/tmp/script/_opt_script_check" <<-OSC
 	_etmk=\`sed -n '1p' $et_start_mark 2>/dev/null | tr -d ' \r\n'\` ; case "$_etmk" in ''|*[!0-9]*) _etmk=0 ;; esac ; [ -z "\`pidof easytier-core\`" ] && [ $(( \`date +%s\` - _etmk )) -gt $et_start_grace ] && logger -t "进程守护" "EasyTier_core 进程掉线" && eval "$scriptfilepath start &" && sed -Ei '/【EasyTier_core】|^$/d' /tmp/script/_opt_script_check #【EasyTier_core】
 	[ -z "\`pidof easytier-core\`" ] && [ $(( \`date +%s\` - _etmk )) -le $et_start_grace ] && logger -t "【EasyTier】" "启动/下载进行中, 守护本次跳过" #【EasyTier_core】
- 	[ -s /tmp/easytier.log ] && [ "\$(stat -c %s /tmp/easytier.log)" -gt 4194304 ] && echo "" > /tmp/easytier.log & #【EasyTier_core】
+ 	[ -s /tmp/easytier.log ] && [ "\$(stat -c %s /tmp/easytier.log)" -gt 1048576 ] && echo "" > /tmp/easytier.log & #【EasyTier_core】
 	OSC
 	fi
 
@@ -708,7 +712,7 @@ web_keep() {
 	cat >> "/tmp/script/_opt_script_check" <<-OSC
 	_etwmk=\`sed -n '1p' $et_web_start_mark 2>/dev/null | tr -d ' \r\n'\` ; case "$_etwmk" in ''|*[!0-9]*) _etwmk=0 ;; esac ; [ -z "\`pidof easytier-web\`" ] && [ $(( \`date +%s\` - _etwmk )) -gt $et_start_grace ] && logger -t "进程守护" "EasyTier_web 进程掉线" && eval "$scriptfilepath start &" && sed -Ei '/【EasyTier_web】|^$/d' /tmp/script/_opt_script_check #【EasyTier_web】
 	[ -z "\`pidof easytier-web\`" ] && [ $(( \`date +%s\` - _etwmk )) -le $et_start_grace ] && logger -t "【EasyTier】" "Web 启动/下载进行中, 守护本次跳过" #【EasyTier_web】
- 	[ -s /tmp/easytier_web.log ] && [ "\$(stat -c %s /tmp/easytier_web.log)" -gt 4194304 ] && echo "" > /tmp/easytier_web.log & #【EasyTier_web】
+ 	[ -s /tmp/easytier_web.log ] && [ "\$(stat -c %s /tmp/easytier_web.log)" -gt 1048576 ] && echo "" > /tmp/easytier_web.log & #【EasyTier_web】
 	OSC
 	fi
 
@@ -864,6 +868,11 @@ start_core() {
 		[ "$et_log" = "5" ] && CMD="--console-log-level error"
 		CMD="-c /etc/storage/easytier.toml $CMD"
 	fi
+	# debug/trace 下 EasyTier 每秒能刷出上百行, /tmp/easytier.log 几十分钟就能到几 MB。
+	# 守护每 80 秒截断一次(只释放实际占用), 但文件"逻辑大小"看起来仍很大, 属稀疏文件正常现象。
+	case "$et_log" in
+	3|4) logg "注意: 日志级别为调试/跟踪, /tmp/easytier.log 增长很快, 排障完建议改回警告/信息" ;;
+	esac
 	# 内联赋值 TOKIO_WORKER_THREADS: 不依赖 export 继承链(httpd system()/autostart & 的
 	# 父环境里可能已存在同名变量导致第40行的 [ -z ] 不生效), 直接钉死在启动命令上,
 	# 从根上避免 MT7621 按 CPU 核数起满线程 -> 栈分配失败 EAGAIN -> tokio panic (os error 11)

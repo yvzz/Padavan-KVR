@@ -709,6 +709,23 @@ ej_dump(int eid, webs_t wp, int argc, char **argv)
 		return (ej_route_table(eid, wp, 0, NULL));
 	else if (strcmp(file, "conntrack.log")==0)
 		return (ej_conntrack_table(eid, wp, 0, NULL));
+#if defined (APP_EASYTIER)
+	/* /tmp/easytier.log 由 easytier-core 直接持有 fd 写入。守护进程超过 1MB 会截断它,
+	 * 但进程的写偏移不会归零 —— 下一次写会把文件撑回原来的"逻辑大小", 前面全是 '\0'
+	 * (稀疏文件: du 很小, 但 ls -l 显示好几 MB)。整文件吐进页面会把几 MB 的 '\0'
+	 * 灌给浏览器, 这里只给最后 32KB(那才是真正的最新日志)。
+	 */
+	else if (strcmp(file, "easytier.log")==0)
+	{
+		system("tail -c 32768 /tmp/easytier.log > /tmp/easytier_tail.log 2>/dev/null");
+		snprintf(filename, sizeof(filename), "%s", "/tmp/easytier_tail.log");
+	}
+	else if (strcmp(file, "easytier_web.log")==0)
+	{
+		system("tail -c 32768 /tmp/easytier_web.log > /tmp/easytier_web_tail.log 2>/dev/null");
+		snprintf(filename, sizeof(filename), "%s", "/tmp/easytier_web_tail.log");
+	}
+#endif
 
 	ret = 0;
 
