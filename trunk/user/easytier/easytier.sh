@@ -138,6 +138,16 @@ et_lock_release() {
 # 下载互斥锁: 用 mkdir 原子性抢锁, 防止多个 start_core/start_web 并发下载互相踩踏、耗尽小 /tmp.
 # 抢锁成功返回 0; 已有实例在下载则返回 1(调用方应直接退出, 等守护下次重试).
 dl_lock="/var/lock/easytier_dl.lock"
+# 启动/下载期标记: 记录最近一次 start_core / start_web 的发起时间戳。
+# 背景: 守护进程(watchdog, 每 80 秒一轮)在"二进制还在下载、进程尚未起来"时会
+# 误判"进程掉线"并再次 start —— 轻则刷一堆无用日志, 重则在"下载完成→进程启动"
+# 这个窗口里把刚起来的进程又杀掉重来。有了标记, watchdog 在宽限期内直接跳过。
+# 注意不能把 core_keep 挪到"运行成功之后"才注册: 那样下载失败就再也没人重试了。
+et_start_mark="/tmp/easytier/.starting"
+et_web_start_mark="/tmp/easytier/.starting_web"
+# 宽限期(秒): 需覆盖"取版本 + 下载(zip 约 9.4M) + 解压 + 启动 + 自检"全程。
+# 实测约 30~40 秒, 取 180 留足余量; 超过后 watchdog 恢复正常巡检。
+et_start_grace=180
 dl_lock_try() {
 	if mkdir "$dl_lock" 2>/dev/null ; then
 		return 0
@@ -644,7 +654,8 @@ core_keep() {
 	# 防火墙/端口失效不再触发完整 start(那会并发重下载、互相踩踏耗尽小 /tmp),
 	# 防火墙规则在 start_core 成功后的 et_rules 里会随进程一起重建.
 	cat >> "/tmp/script/_opt_script_check" <<-OSC
-	[ -z "\`pidof easytier-core\`" ] && logger -t "进程守护" "EasyTier_core 进程掉线" && eval "$scriptfilepath start &" && sed -Ei '/【EasyTier_core】|^$/d' /tmp/script/_opt_script_check #【EasyTier_core】
+	_etmk=\`sed -n '1p' $et_start_mark 2>/dev/null | tr -d ' \r\n'\` ; case "$_etmk" in ''|*[!0-9]*) _etmk=0 ;; esac ; [ -z "\`pidof easytier-core\`" ] && [ $(( \`date +%s\` - _etmk )) -gt $et_start_grace ] && logger -t "进程守护" "EasyTier_core 进程掉线" && eval "$scriptfilepath start &" && sed -Ei '/【EasyTier_core】|^$/d' /tmp/script/_opt_script_check #【EasyTier_core】
+	[ -z "\`pidof easytier-core\`" ] && [ $(( \`date +%s\` - _etmk )) -le $et_start_grace ] && logger -t "【EasyTier】" "启动/下载进行中, 守护本次跳过" #【EasyTier_core】
  	[ -s /tmp/easytier.log ] && [ "\$(stat -c %s /tmp/easytier.log)" -gt 4194304 ] && echo "" > /tmp/easytier.log & #【EasyTier_core】
 	OSC
 	fi
@@ -657,7 +668,8 @@ web_keep() {
 	sed -Ei '/【EasyTier_web】|^$/d' /tmp/script/_opt_script_check
 	# 与 core_keep 同理, 只保留"进程掉线→start"一条核心规则.
 	cat >> "/tmp/script/_opt_script_check" <<-OSC
-	[ -z "\`pidof easytier-web\`" ] && logger -t "进程守护" "EasyTier_web 进程掉线" && eval "$scriptfilepath start &" && sed -Ei '/【EasyTier_web】|^$/d' /tmp/script/_opt_script_check #【EasyTier_web】
+	_etwmk=\`sed -n '1p' $et_web_start_mark 2>/dev/null | tr -d ' \r\n'\` ; case "$_etwmk" in ''|*[!0-9]*) _etwmk=0 ;; esac ; [ -z "\`pidof easytier-web\`" ] && [ $(( \`date +%s\` - _etwmk )) -gt $et_start_grace ] && logger -t "进程守护" "EasyTier_web 进程掉线" && eval "$scriptfilepath start &" && sed -Ei '/【EasyTier_web】|^$/d' /tmp/script/_opt_script_check #【EasyTier_web】
+	[ -z "\`pidof easytier-web\`" ] && [ $(( \`date +%s\` - _etwmk )) -le $et_start_grace ] && logger -t "【EasyTier】" "Web 启动/下载进行中, 守护本次跳过" #【EasyTier_web】
  	[ -s /tmp/easytier_web.log ] && [ "\$(stat -c %s /tmp/easytier_web.log)" -gt 4194304 ] && echo "" > /tmp/easytier_web.log & #【EasyTier_web】
 	OSC
 	fi
@@ -690,6 +702,8 @@ et_rules() {
 
 start_core() {
 	[ "$et_enable" = "0" ] && return 1
+	mkdir -p /tmp/easytier 2>/dev/null
+	date +%s > "$et_start_mark" 2>/dev/null
 	logg "正在启动easytier-core"
   	if [ -z "$et_core" ] || [ "${et_core#/tmp/easytier/}" = "$et_core" ] ; then
 		# 为空, 或仍是旧路径 (/tmp/var/... 或 /etc/storage/bin/...) -> 切到新默认 /tmp/easytier/
@@ -834,6 +848,8 @@ start_core() {
 
 start_web() {
 	[ "$et_web_enable" = "0" ] && return 1
+	mkdir -p /tmp/easytier 2>/dev/null
+	date +%s > "$et_web_start_mark" 2>/dev/null
 	logg "正在启动easytier-web"
   	if [ -z "$et_web_bin" ] || [ "${et_web_bin#/tmp/easytier/}" = "$et_web_bin" ] ; then
 		# 同上: 为空或仍是旧路径时切到新默认 /tmp/easytier/
