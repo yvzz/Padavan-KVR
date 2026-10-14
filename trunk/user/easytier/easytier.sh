@@ -85,6 +85,22 @@ et_single_check() {
 	return 0
 }
 
+# 取二进制落盘目录: 兼容用户自定义路径, 但绝不允许落到 /tmp 根目录。
+# 背景(用户实测): /tmp 下除了 /tmp/easytier/easytier-core, 还莫名多出一个
+# /tmp/easytier-core —— 原因是 nvram easytier_bin 可能是旧值或被手改成
+# /tmp/easytier-core, 而下载函数统一用 `dirname "$et_core"` 取目录: dirname
+# 得到 /tmp, 二进制就被直接铺在 /tmp 根, 与 /tmp/easytier/ 内的正式副本并存,
+# 白白多占一份(约 9M, 小 tmpfs 上很致命)。
+# 同理 easytier_bin 为空时 dirname 得到 ".", 会写进脚本当前工作目录。
+et_dir_of() {
+	_d="$(dirname "$1" 2>/dev/null)"
+	case "$_d" in
+	''|'.'|'/'|'/tmp')
+		_d="$(et_pick_bin_dir)" ;;
+	esac
+	echo "$_d"
+}
+
 # 选二进制目录: 默认 /tmp/easytier/ (tmpfs, 重启即丢失但目录专属于本插件, 不会与其他插件
 # 的 /tmp/var/ 冲突). 阈值 20M 保留为启动 sanity check (K2P /tmp 约 30M, core 约 7M, 留够
 # 余量给 zip 解压时的临时文件).
@@ -369,7 +385,7 @@ et_dl_timeout() {
 # 官方源: EasyTier/EasyTier 的 easytier-linux-mipsel-<tag>.zip (内含 easytier-core / easytier-cli), 约 8.9M
 dowload_et_official() {
 	tag="$1"
-	bin_path=$(dirname "$et_core")
+	bin_path=$(et_dir_of "$et_core")
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
 	zip_name="easytier-linux-mipsel-${tag}.zip"
 	for proxy in $et_sources ; do
@@ -411,7 +427,14 @@ dowload_et_official() {
 	# 下载成功, 解压
 	rm -rf /tmp/easytier_official
 	mkdir -p /tmp/easytier_official
-	unzip -o /tmp/${zip_name} -d /tmp/easytier_official 2>/dev/null
+	# 只解出需要的两个成员(core 6.7M + cli 2.7M)。实测官方 zip 里就这两个文件,
+	# 所以峰值不变; 但将来一旦混入 easytier-gui 之类大文件, 就不会被一股脑
+	# 解出来白占 /tmp —— 小 tmpfs 上多解一个大文件就可能让下载半途失败。
+	unzip -o /tmp/${zip_name} -d /tmp/easytier_official "*/easytier-core" "*/easytier-cli" 2>/dev/null
+	if [ ! -f /tmp/easytier_official/easytier-linux-mipsel/easytier-core ] ; then
+		# 成员列表写法在部分 busybox unzip 上不生效 -> 整体重解一次兜底
+		unzip -o /tmp/${zip_name} -d /tmp/easytier_official 2>/dev/null
+	fi
 	if [ ! -f /tmp/easytier_official/easytier-linux-mipsel/easytier-core ] ; then
 		# zip 内无此文件: 多半下到了错误页(HTML), 换源重试
 		logg "下载内容异常(zip 内未找到二进制), 换源重试"
@@ -421,8 +444,14 @@ dowload_et_official() {
 	# 解压成功, 二进制就位
 	# 用 mv 而非 cp: 同分区内是 rename, 不额外占空间, 适配小容量 /tmp
 	mv -f /tmp/easytier_official/easytier-linux-mipsel/easytier-core "$bin_path/easytier-core"
-	mv -f /tmp/easytier_official/easytier-linux-mipsel/easytier-cli "$bin_path/easytier-cli"
-	chmod +x "$bin_path/easytier-core" "$bin_path/easytier-cli"
+	chmod +x "$bin_path/easytier-core"
+	if [ -f /tmp/easytier_official/easytier-linux-mipsel/easytier-cli ] ; then
+		mv -f /tmp/easytier_official/easytier-linux-mipsel/easytier-cli "$bin_path/easytier-cli"
+		chmod +x "$bin_path/easytier-cli"
+	else
+		# cli 只用于页面上的 peer/route/node 等状态查询, 缺了不影响 core 启动
+		logg "未解出 easytier-cli(仅影响页面状态查询, 不影响启动)"
+	fi
 	# 二进制已就位: 立刻删掉 zip 与解压目录(合计约 19M), 给下面的 -h 运行测试腾空间。
 	# 旧代码等到 -h 通过后才清理, 小 /tmp 上会因空间不足让 -h 失败,
 	# 被误判成"版本不兼容"锁 30 分钟。
@@ -464,7 +493,7 @@ dowload_et_official() {
 # 镜像兜底: lmq8267/EasyTier 的 easytier-mipsel-linux-muslsf.tar.gz (musl 软浮点), 约 15.5M
 dowload_et_mirror() {
 	tag="$1"
-	bin_path=$(dirname "$et_core")
+	bin_path=$(et_dir_of "$et_core")
 	[ ! -d "$bin_path" ] && mkdir -p "$bin_path"
 	logg "开始下载镜像 https://github.com/lmq8267/EasyTier/releases/download/${tag}/easytier-mipsel-linux-muslsf.tar.gz"
 	for proxy in $et_sources ; do
@@ -591,7 +620,7 @@ dowload_et() {
 
 dowload_web() {
 	tag="$1"
-	webbin_path=$(dirname "$et_web_bin")
+	webbin_path=$(et_dir_of "$et_web_bin")
 	[ ! -d "$webbin_path" ] && mkdir -p "$webbin_path"
 	logg "开始下载 https://github.com/lmq8267/EasyTier/releases/download/${tag}/easytier-mipsel-linux-muslsf.tar.gz"
 	for proxy in $et_sources ; do
@@ -630,6 +659,15 @@ dowload_web() {
 
 update_et() {
 	get_tag
+	# 路径兜底: 页面"更新"按钮(web_ex.c: system("/usr/bin/easytier.sh update &"))
+	# 直接走这里, 不经过 start_core 的路径纠正。若 easytier_bin 为空或指向
+	# /tmp 根(如 /tmp/easytier-core), 先收敛到 /tmp/easytier/, 否则更新会把
+	# 二进制重新铺到 /tmp 根, 形成与正式副本并存的重复文件。
+	case "$et_core" in
+	''|'/tmp/easytier-core'|'/tmp/easytier-cli')
+		et_core="$(et_pick_bin_dir)/easytier-core"
+		nvram set easytier_bin=$et_core ;;
+	esac
 	[ -z "$tag" ] && logg "无法获取最新版本" && exit 1
 	tag=$(echo $tag | tr -d ' ' | tr -d '\n')
 	# 注意: tag 必须保留前缀 v (下载地址里带 v), 比较版本时再各自剥掉 v
@@ -719,6 +757,15 @@ start_core() {
 		et_core="$_new_bin"
   		nvram set easytier_bin=$et_core
     	fi
+	# 清理 /tmp 根目录下的重复副本: 旧版本或手改路径曾把二进制直接落在 /tmp 下
+	# (如 /tmp/easytier-core), 与 /tmp/easytier/ 内的正式副本并存。只有正式副本
+	# 校验通过后才删, 避免把唯一一份可用的二进制删掉。
+	case "$et_core" in
+	/tmp/easytier/*)
+		if et_bin_ok "$et_core" ; then
+			rm -f /tmp/easytier-core /tmp/easytier-cli 2>/dev/null
+		fi ;;
+	esac
 	# 兜底重试: 先把守护条目写入 _opt_script_check, 再走下载/启动.
 	# 这样即使重启后下载失败、进程起不来, watchdog 也会每 80 秒重新 start 一次(含重下),
 	# 摆脱 et_restart 的 19 分钟长退避死角, 保证"开启状态重启后能自动拉起".
@@ -778,7 +825,7 @@ start_core() {
 	# 先杀干净再起: 旧实例没退完就起新的, 两者并存会吃光内存/线程,
 	# tokio 建不出 worker 线程直接 panic (os error 11)
 	et_kill_wait easytier-core
-	bin_path=$(dirname "$et_core")
+	bin_path=$(et_dir_of "$et_core")
 	CMD=""
 	if [ "$et_enable" = "1" ] ; then
 		if [ -z "$config_server" ] ; then
@@ -909,7 +956,7 @@ start_web() {
 	[ "$et_web_log" = "3" ] && webCMD="${webCMD} --console-log-level debug"
 	[ "$et_web_log" = "4" ] && webCMD="${webCMD} --console-log-level trace"
 	[ "$et_web_log" = "5" ] && webCMD="${webCMD} --console-log-level error"
-	wbin_path=$(dirname "$et_web_bin")
+	wbin_path=$(et_dir_of "$et_web_bin")
 	etwcmd="cd $wbin_path ; ./easytier-web ${webCMD} >/tmp/easytier_web.log 2>&1"
 	logg "运行${etwcmd}"
 	eval "$etwcmd" &
