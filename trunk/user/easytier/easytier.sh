@@ -875,7 +875,10 @@ start_core() {
 	# 先过滤掉会破坏 shell 结构的字符, 防止页面输入被拆成多条命令执行。
 	if [ -n "$et_core_args" ] ; then
 		et_core_args="$(printf '%s' "$et_core_args" | tr '\n' ' ' | sed 's/[;&|<>`$]//g' | tr -s ' ')"
-		[ -n "$et_core_args" ] && CMD="$CMD $et_core_args"
+		if [ -n "$et_core_args" ] ; then
+			CMD="$CMD $et_core_args"
+			logg "已追加自定义参数: $et_core_args"
+		fi
 	fi
 	# debug/trace 下 EasyTier 每秒能刷出上百行, /tmp/easytier.log 几十分钟就能到几 MB。
 	# 守护每 80 秒截断一次(只释放实际占用), 但文件"逻辑大小"看起来仍很大, 属稀疏文件正常现象。

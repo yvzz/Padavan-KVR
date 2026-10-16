@@ -1503,6 +1503,7 @@
 			{"easytier_uuid", "", NULL, EVM_RESTART_EASYTIER},
 			{"easytier_geoip", "", NULL, EVM_RESTART_EASYTIER},
 			{"easytier_extra_args", "", NULL, EVM_RESTART_EASYTIER},
+			{"easytier_core_args", "", NULL, EVM_RESTART_EASYTIER},
 			{"scripts.easytier.toml", "File", NULL, EVM_RESTART_EASYTIER},
 			{0,0,0,0}
 	};
