@@ -887,6 +887,7 @@ struct nvram_pair router_defaults[] = {
 	{ "easytier_uuid", "" },
 	{ "easytier_geoip", "" },
 	{ "easytier_extra_args", "" },
+	{ "easytier_core_args", "" },
 #endif
 
 #if defined(APP_BAFA)

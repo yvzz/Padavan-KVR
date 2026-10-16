@@ -19,6 +19,8 @@ et_api_host="$(nvram get easytier_api_host)"
 et_uuid="$(nvram get easytier_uuid)"
 et_geoip="$(nvram get easytier_geoip)"
 et_extra_args="$(nvram get easytier_extra_args)"
+# 追加到 easytier-core 命令行末尾的自定义参数(页面"核心额外参数"), 留空表示不改
+et_core_args="$(nvram get easytier_core_args)"
 [ -z "$et_web_port" ] && et_web_port=22020
 [ -z "$et_web_api" ] && et_web_port=11211
 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -867,6 +869,13 @@ start_core() {
 		[ "$et_log" = "4" ] && CMD="--console-log-level trace"
 		[ "$et_log" = "5" ] && CMD="--console-log-level error"
 		CMD="-c /etc/storage/easytier.toml $CMD"
+	fi
+	# 用户自定义参数(easytier_core_args): 追加在命令行末尾 —— 后写的覆盖先写的,
+	# 所以填 --lazy-p2p / --disable-p2p / -c /etc/storage/other.toml 都能生效。
+	# 先过滤掉会破坏 shell 结构的字符, 防止页面输入被拆成多条命令执行。
+	if [ -n "$et_core_args" ] ; then
+		et_core_args="$(printf '%s' "$et_core_args" | tr '\n' ' ' | sed 's/[;&|<>`$]//g' | tr -s ' ')"
+		[ -n "$et_core_args" ] && CMD="$CMD $et_core_args"
 	fi
 	# debug/trace 下 EasyTier 每秒能刷出上百行, /tmp/easytier.log 几十分钟就能到几 MB。
 	# 守护每 80 秒截断一次(只释放实际占用), 但文件"逻辑大小"看起来仍很大, 属稀疏文件正常现象。

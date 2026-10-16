@@ -421,6 +421,13 @@ function button_etweb(){
 	</select>
 	</td>
 	</tr><td colspan="3"></td>
+	<tr id="core_args_tr">
+	<th width="30%" style="border-top: 0 none;" title="追加到 easytier-core 命令行末尾。后写的覆盖先写的，所以也可以用来换配置文件路径或日志级别。例如：--lazy-p2p、--disable-p2p、--disable-tcp-hole-punching、-c /etc/storage/other.toml">核心额外参数</th>
+	<td style="border-top: 0 none;">
+	<textarea maxlength="1024" class="input" name="easytier_core_args" id="easytier_core_args" placeholder="--lazy-p2p" style="width: 210px; height: 20px; resize: both; overflow: auto;"><% nvram_get_x("","easytier_core_args"); %></textarea>
+	<br>&nbsp;<span style="color:#888;">追加在启动命令末尾，留空表示不修改；修改后需重启插件生效</span>
+	</td>
+	</tr><td colspan="3"></td>
 	<tr>
 	<th width="30%" style="border-top: 0 none;" title="使用配置文件和WEB控制台时务必填写一致，用于自动放行所需的端口，默认放行ipv4和ipv6的。">端口放行</th>
 	<td style="border-top: 0 none;">
@@ -522,7 +529,7 @@ function button_etweb(){
 	</div>
 	</tr><td colspan="3"></td>
 	<tr> 
-	<th style="border: 0 none;" title="你可以通过-h获取控制台程序的参数，这里可以添加上述没有的参数，例如：--disable-registration --allow-auto-create-user">额外参数</th>
+	<th style="border: 0 none;" title="仅作用于 easytier-web（控制台），不影响 easytier-core。你可以通过-h获取控制台程序的参数，这里可以添加上述没有的参数，例如：--disable-registration --allow-auto-create-user">额外参数(仅WEB)</th>
 	<td style="border: 0 none;">
 	<textarea maxlength="1024" class="input" name="easytier_extra_args" id="easytier_extra_args" placeholder="--allow-auto-create-user" style="width: 210px; height: 20px; resize: both; overflow: auto;"><% nvram_get_x("","easytier_extra_args"); %></textarea>
 	</div>
