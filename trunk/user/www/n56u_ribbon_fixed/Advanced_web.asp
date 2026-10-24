@@ -68,7 +68,12 @@ function initial(){
 	show_banner(2);
 	show_menu(5,8,4);
 	show_footer();
-	
+
+	/* 无 USB 硬件的机型(K2P/R2100/RM2100 等 BOARD_NUM_USB_PORTS=0)不显示该开关 */
+	if (support_usb()){
+		showhide_div('row_w_usb', true);
+	}
+
 	if (found_app_shadowsocks()){
 	showhide_div('row_wss', true);
 }
@@ -273,7 +278,7 @@ function applyRule(){
 												</div>
 											</td>
 										</tr>
-										<tr >
+										<tr id="row_w_usb" style="display:none">
 											<th width="50%">USB应用</th>
 											<td>
 													<div class="main_itoggle">

@@ -976,8 +976,10 @@ function show_menu(L1, L2, L3){
 		ext_title_ul.className = "clearfix";
 		var ext_title = document.createElement("li");
 		ext_title.id = "option8";
-		if(L2 > 10)
-			ext_title.className = "active";
+		/* 选中态只由本行点击驱动: 子插件页面选中时不连带动亮主菜单 */
+		ext_title.onclick = function(){
+			this.className = (this.className == "active") ? "" : "active";
+		};
 		ext_title.innerHTML = '<a href="javascript:;"><i class="icon-th"></i>&nbsp;&nbsp;扩展功能</a>';
 		ext_title_ul.appendChild(ext_title);
 
