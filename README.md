@@ -1,6 +1,6 @@
 # Padavan-KVR #
 
-![](https://views.whatilearened.today/views/github/yvzz/padavan-KVR-1.svg)[![](https://deepwiki.com/badge.svg)](https://deepwiki.com/yvzz/padavan-KVR-1)
+![](https://views.whatilearened.today/views/github/yvzz/Padavan-KVR.svg)[![](https://deepwiki.com/badge.svg)](https://deepwiki.com/yvzz/Padavan-KVR)
 
 基于 [vb1980/Padavan-KVR](https://github.com/vb1980/Padavan-KVR.git) 固件（浅色主题）二次维护，最初 fork 自 [fightroad/Padavan-KVR](https://github.com/fightroad/Padavan-KVR.git)。
 
@@ -39,67 +39,148 @@ WiFi（默认 SSID 为机型名 `BOARD_PID`，**不带 MAC 后缀**）
 
 > 早期版本 SSID 带 MAC 后四位（如 `K2P_9981`），现固件已改为纯机型名。若要恢复 MAC 后缀，在 `trunk/user/shared/defaults.h` 的 `DEF_WLAN_*_SSID` 定义中加 `MAC` 拼接并同步 `rc.c` 的填充逻辑。
 
-## 支持的机型
+## 支持的机型与编译配置
 
-- 板级配置见 `trunk/configs/boards/`，编译模板见 `trunk/configs/templates/`，支持机型涵盖 K2P、NEWIFI3、MSG1500、JCG-Q20、CR660x、RM2100、MI-R3G/R4A 等数十款 MT7621 / MT76x8 设备。
-- 已内置在线编译工作流（`.github/workflows/`）：`K2P.yml`、`MI-MINI.yml`、`R2100.yml`、`RM2100.yml`，可 fork 后直接 Actions 在线编译。
-- 自定义增减插件：编辑对应机型的 `trunk/configs/templates/<机型>.config`，将 `CONFIG_FIRMWARE_INCLUDE_*` 开关改为 `y`/`n`。
-- ⚠️ 对 7612 无线芯片的支持已知有问题，含 7612 的机型（如 B70）无法正常工作。
+本仓库实际维护 **4 个机型**，均已配置 GitHub Actions 在线编译工作流（`.github/workflows/`）：
 
-## 自定义菜单 / 插件说明
+| 机型 | 工作流文件 | 内存 | /tmp 大小 | /etc 大小 |
+|---|---|---|---|---|
+| K2P | `K2P.yml` | 128M | 36M | 5M |
+| MI-MINI | `MI-MINI.yml` | 128M | 36M | 5M |
+| R2100 | `R2100.yml` | 256M | 48M | 13M |
+| RM2100 | `RM2100.yml` | 256M | 48M | 13M |
 
-固件在 Web 管理界面「自定义菜单」页提供大量插件开关。本节区分两个常被混淆的概念：
+> ⚠️ 对 7612 无线芯片的支持已知有问题，含 7612 的机型（如 B70）无法正常工作。
 
-- **菜单已接入**：Web UI 上能看到的二级菜单项（由 `Advanced_web.asp` + `state.js` 注册）。
-- **默认编译进固件**：`.config` 模板里 `CONFIG_FIRMWARE_INCLUDE_*=y`，二进制/脚本随固件烧入。
+Fork 后可直接在 GitHub Actions 中选择机型编译，无需本地环境。自定义增减插件需编辑对应机型的 `.github/workflows/<机型>.yml`，修改 `echo "CONFIG_FIRMWARE_INCLUDE_XXX=y/n"` 行。
 
-⚠️ **本仓库默认的 K2P 编译模板基本是精简的**：Web 二级菜单里看到的开关很多，但绝大多数插件在 `trunk/configs/templates/K2P.config` 里 **没有** 显式开启 `CONFIG_FIRMWARE_INCLUDE_*`，因此**默认编译出来的固件里很多插件不包含二进制**。需要在对应 `.config` 里把开关改为 `y`，或在 fork 后用 GitHub Actions 改 Workflow 的 `ENABLED_PLUGINS` 才会编入。
+## 已编译插件清单
 
-下表对照「Web 二级菜单 ↔ 默认编译状态」，用于核对哪些默认可用、哪些需要手动开启：
+以下为四个工作流中**实际启用**（`=y`）的插件。Web 菜单中可能还存在其它未编译的开关项，那些仅代表 UI 骨架，不包含二进制。
 
-组网 / 内网穿透
+### 四个机型全部编译（30 项）
 
-| 插件 | Web 菜单 | K2P 默认编译 | 说明 |
-| --- | --- | --- | --- |
-| EasyTier（P2P 虚拟局域网，Rust） | ✅ | ❌ 二进制运行期下载 | 首次启用自动下载到 `/tmp/easytier/` |
-| Tailscale（WireGuard 系零配置组网） | ✅ | ❌ 二进制运行期下载 | 同上 |
-| VNT 客户端（`vntcli`） | ✅ | ❌ 二进制运行期下载 | 同上 |
-| VNT 服务端（`vnts`） | ✅ | ❌ 二进制运行期下载 | 同上 |
-| NPC（nps 客户端，内网穿透） | ✅ | ❌ 二进制运行期下载 | 同上 |
-| WireGuard | ✅ | ❌ 内核模块编译关闭 | `CONFIG_FIRMWARE_INCLUDE_WIREGUARD=n`，需手动开 |
-| **皎月连（NAT 穿透）** | ✅ | ❌ 未编译 | `CONFIG_FIRMWARE_INCLUDE_NATPIERCE` 默认未设置 |
-| **FRP（frpc / frps）** | ✅ | ❌ 未编译 | `CONFIG_FIRMWARE_INCLUDE_FRPC=n` / `FRPS=n` |
+**系统基础**
 
-DNS / 动态域名
+| 插件 | 说明 |
+|---|---|
+| DROPBEAR | SSH 服务端（Dropbear） |
+| DROPBEAR_FAST_CODE | Dropbear 加速（对称加密/哈希优化） |
+| OPENSSH | OpenSSH 客户端（与 Dropbear 共存） |
+| OPENSSL_EC | OpenSSL 椭圆曲线支持 |
+| OPENSSL_EXE | OpenSSL 命令行工具（证书生成等） |
+| CURL | HTTP 客户端（插件下载依赖） |
+| HTTPS | OpenSSL + HTTPS 支持 |
+| DDNS_SSL | DDNS 客户端 HTTPS 支持 |
+| TTYD | Web 终端 |
+| HTOP | 系统进程监控 |
+| NANO | 文本编辑器 |
+| LRZSZ | 文件传输工具（rz/sz） |
+| MSD_LITE | MSD Lite 工具 |
 
-| 插件 | Web 菜单 | K2P 默认编译 | 说明 |
-| --- | --- | --- | --- |
-| 阿里云 DDNS（`aliddns`） | ✅ | ❌ 需手动开 |
-| DNSPod DDNS（`ddnspod`） | ✅ | ❌ 需手动开 |
+**网络 / QoS**
 
-网络工具 / 应用
+| 插件 | 说明 |
+|---|---|
+| XFRM | IPsec (XFRM) 内核模块 + iptables 扩展 |
+| QOS | 网络 QoS 调度模块 |
+| IMQ | IMQ 中间队列流量整形模块 |
+| IFB | IFB 虚拟网络设备（流量整形） |
+| NAPT66 | IPv6 NAT / 端口转发 |
+| IPERF3 | 网络测速工具 |
+| MTR | 网络诊断（traceroute + ping 结合） |
+| TCPDUMP | 抓包工具 |
+| SFTP | SFTP 服务器 |
+| EAP_PEAP | EAP-PEAP 认证（企业级 WiFi） |
 
-| 插件 | Web 菜单 | K2P 默认编译 | 说明 |
-| --- | --- | --- | --- |
-| Alist（网盘聚合） | ✅ | ❌ 需手动开 |
-| 巴法云（IoT / MQTT，仓库 `bafa/`） | ✅ | ❌ 需手动开 |
-| VirtualHere（USB 共享） | ✅ | ❌ 需手动开 |
-| V2RayA（代理） | ✅ | ❌ 需手动开 |
-| Caddy / Cloudflared / 阿里云盘 WebDAV / 网易云解锁 / UU 加速器 / Lucky / 微信推送 | ✅ | ❌ 默认均未编译 | 仓库目录齐全，需手动翻 `.config` 开关 |
+**组网 / 内网穿透**
 
-其它
+| 插件 | 说明 |
+|---|---|
+| EASYTIER | P2P 虚拟局域网（Rust，二进制运行期下载） |
+| NPC | nps 内网穿透客户端（二进制运行期下载） |
+| VNTCLI | VNT 客户端（二进制运行期下载） |
 
-- `K2P.config` 里默认开启的零碎工具：`TTYD`、`OpenSSH`、`tcpdump`、`curl`、`OpenVPN`、`xUPNPD`、`srelay`、`socat`、`MTR`、`htop`、`nano`、`iperf3`、`MiniEAP` 等。
-- Shadowsocks、pdnsd DNS 加速、MentoHust 校园网认证等老插件：源码在仓库，Web 菜单无独立开关，需自己加 `dir_y +=` 进 `trunk/user/Makefile`。
+**DNS / DDNS / 其它**
 
-如何快速检查一个插件当前是否编入了你的固件？
+| 插件 | 说明 |
+|---|---|
+| ALIDDNS | 阿里云 DDNS |
+| DDNSPOD | DNSPod DDNS |
+| CLOUDFLARE | Cloudflare DDNS |
+| BAFA | 巴法云（IoT / MQTT 推送） |
 
-- 在路由器上 `ls /usr/bin/ | grep -iE "插件名|二进制名"`，存在即编入。
-- 不存在 → 打开 Web 「自定义菜单」页，对应开关即便亮着也只代表 Web 标记，不会凭空变出二进制。
+### 部分机型编译（按机型差异）
 
-## 移除 WireGuard 内核模块（可选）
+| 插件 | K2P | MI-MINI | R2100 | RM2100 | 说明 |
+|---|:---:|:---:|:---:|:---:|---|
+| WIREGUARD | ✅ | — | ✅ | ✅ | WireGuard VPN 内核模块 |
+| TAILSCALE | ✅ | — | ✅ | ✅ | ZeroConfig 组网（WireGuard 系，二进制运行期下载） |
+| VNTS | ✅ | — | ✅ | ✅ | VNT 服务端 |
+| OPENVPN | ✅ | — | ✅ | ✅ | OpenVPN 客户端/服务端 |
+| CADDY | ✅ | — | — | ✅ | 轻量 Web 服务器 / 文件管理（~4KB） |
+| ALDRIVER | ✅ | — | — | ✅ | 阿里云盘 WebDAV |
+| CIFS | ✅ | — | — | — | SMB/CIFS 客户端 |
+| SMARTDNS | ✅ | — | ✅ | ✅ | 智能 DNS 分流 |
+| DUMP1090 | ✅ | — | ✅ | ✅ | ADS-B 航班追踪（需 RTL_SDR） |
+| FFMPEG_NEW | ✅ | — | ✅ | ✅ | ffmpeg 0.11.x（Minidlna/Firefly 依赖） |
+| RTL_SDR | ✅ | — | ✅ | ✅ | RTL-SDR USB 接收器驱动 |
+| SOCAT | ✅ | — | ✅ | ✅ | 多功能网络工具（socat） |
+| SRELAY | ✅ | — | ✅ | ✅ | SOCKS5 代理 |
+| XUPNPD | — | — | ✅ | ✅ | xUPnP IPTV 媒体服务器 |
+| WXSEND | ✅ | ✅ | — | ✅ | 微信推送 |
+| ADGUARDHOME | — | — | ✅ | ✅ | AdGuard Home DNS 广告过滤 |
+| HDPARM | — | ✅ | ✅ | ✅ | 硬盘节能管理 |
+| PARTED | — | ✅ | ✅ | ✅ | GPT 分区工具 |
+| FTPD | — | ✅ | — | — | FTP 服务器 |
+| SMBD | — | ✅ | — | — | Samba 文件共享服务器 |
+| SMBD36 | — | ✅ | — | — | Samba 3.6（替代版） |
+| LPRD | — | ✅ | — | — | LPR 打印机守护程序 |
+| SERIAL | — | ✅ | — | — | USB-Serial 模块（如 pl2303） |
+| U2EC | — | ✅ | — | — | USB-over-Ethernet 打印 |
 
-不需要 WireGuard 的，去 `trunk/configs/boards/<机型>/kernel-3.4.x.config` 把 `CONFIG_WIREGUARD=y` 改为 `# CONFIG_WIREGUARD is not set`，可省约 900KB+ 内核体积。
+### 未编译但代码在仓库中（可手动开启）
+
+以下插件的源码存在于仓库中，Web 菜单有对应开关，但**当前工作流未编译**（`=n` 或被注释）。需要的话在对应机型的 `.yml` 中改为 `=y` 即可：
+
+| 插件 | 说明 | 未编译原因 |
+|---|---|---|
+| FRPC / FRPS | frp 内网穿透 客户端/服务端 | 用户未选用 |
+| NATPIERCE | 皎月连 NAT 穿透 | 用户未选用 |
+| ZEROTIER | ZeroTier 组网 | 用户未选用 |
+| TUNSAFE | WireGuard TCP 方式 | 用户未选用 |
+| CLOUDFLARED | Cloudflare Tunnel | 用户未选用 |
+| LUCKY | Lucky 管理面板 | 用户未选用 |
+| ALIST | 网盘聚合 | 用户未选用 |
+| VIRTUALHERE | USB 设备远程共享 | 用户未选用 |
+| TRANSMISSION | BT 下载 | 体积较大 |
+| ARIA / ARIA_WEB_CONTROL | Aria2 下载 | 体积较大 |
+| MINIDLNA / FIREFLY | DLNA / iTunes 媒体服务器 | 用户未选用 |
+| SHADOWSOCKS / V2RAY / XRAY / TROJAN / SSOBFS | 代理相关 | 运行期在线下载，无需集成 |
+
+## 如何检查插件是否已编入固件
+
+```sh
+# 在路由器上查看二进制是否存在
+ls /usr/bin/ | grep -iE "npc|easytier|tailscale"
+ls /usr/sbin/ | grep -iE "openvpn|wireguard"
+```
+
+不存在 → 即使 Web「自定义菜单」里开关亮着也只是 UI 标记，不会凭空变出二进制。
+
+## /tmp 与 /etc/storage 分区大小
+
+分区大小在各机型的 workflow 中通过 `sed` 设置，按内存档次分档：
+
+| 内存 | /tmp | /etc (storage) | 适用机型 |
+|---|---|---|---|
+| ≥256M | 48M | 13M | R2100、RM2100 |
+| ≥128M | 36M | 5M | K2P、MI-MINI |
+| 更小 | 24M | 4M | （预留） |
+
+修改方法：编辑对应机型的 `.github/workflows/<机型>.yml`，搜索 `size_tmp` / `size_etc` / `mtd_part_size`。
+
+⚠️ **storage 分区 + 固件大小必须小于闪存总大小，否则刷机变砖！** 计算方式：闪存总大小 − 编译后固件大小 = storage 可用上限。
 
 ## 个性化
 
@@ -108,16 +189,6 @@ DNS / 动态域名
 修改 LOGO：替换 `trunk/user/www/n56u_ribbon_fixed/bootstrap/img/asus_logo.png`（像素 150×70）。
 
 修改默认管理地址 / WiFi 名称 / 账号密码：见 `trunk/user/shared/defaults.h`。
-
-修改 `/tmp` 分区大小（默认 100M）：`trunk/user/scripts/dev_init.sh` 中的 `size_tmp="100M"`。
-
-修改 `/etc/storage` 分区大小（以 NEWIFI3 d2 32M 闪存为例）：
-
-1. `trunk/configs/boards/<机型>/kernel-3.4.x.config` 中 `CONFIG_MTD_STORE_PART_SIZ=0x200000`
-2. `trunk/user/scripts/dev_init.sh` 中 `size_etc="6M"`
-3. `trunk/user/scripts/mtd_storage.sh` 中 `mtd_part_size=65536`
-
-计算方式：先确认闪存大小，减去编译后固件大小得到可用空间。如 32M 闪存、固件 18M，则可用 14M = 14680064 字节，十六进制为 `0xe00000`。将 `CONFIG_MTD_STORE_PART_SIZ` 改为 `0xe00000`、`size_etc` 改为 `14M`、`mtd_part_size` 改为 `14680064`。**切记 storage 分区 + 固件大小必须小于闪存总大小，不能超过！**
 
 ## 编译
 
