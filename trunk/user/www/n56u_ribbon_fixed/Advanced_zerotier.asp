@@ -50,7 +50,6 @@ var isMenuopen = 0;
 function initial(){
 	show_banner(2);
 	show_menu(5,17,0);
-	showmenu();
 	fill_status(zerotier_status());
 	showMRULESList();
 	show_footer();
@@ -75,9 +74,6 @@ function button_updatezerotier() {
     });
 }
 
-function showmenu(){
-showhide_div('dtolink', found_app_ddnsto());
-}
 function applyRule(){
 	showLoading();
 	
@@ -216,16 +212,6 @@ function showMRULESList(){
 						<div class="box well grad_colour_dark_blue">
 							<h2 class="box_head round_top"><#menu5_32#> - <#menu5_30#></h2>
 							<div class="round_bottom">
-							<div>
-							    <ul class="nav nav-tabs" style="margin-bottom: 10px;">
-								<li id="dtolink" style="display:none">
-								    <a href="Advanced_ddnsto.asp"><#menu5_32_2#></a>
-								</li>
-								<li class="active">
-								    <a href="Advanced_zerotier.asp"><#menu5_32_1#></a>
-								</li>
-							    </ul>
-							</div>
 								<div class="row-fluid">
 									<div id="tabMenu" class="submenuBlock"></div>
 									<div class="alert alert-info" style="margin: 10px;">

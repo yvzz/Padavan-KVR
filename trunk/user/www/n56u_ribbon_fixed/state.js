@@ -425,8 +425,6 @@ if (found_app_adguardhome()){
 }
 if (found_app_aliddns()){
 	tabtitle[16] = new Array("", "<#menu5_30#>");
-}else if (found_app_ddnsto()){
-	tabtitle[16] = new Array("", "<#menu5_32_2#>");
 } else if (found_app_zerotier()){
 	tabtitle[16] = new Array("", "<#menu5_32#>");
 }
@@ -534,9 +532,6 @@ if (found_app_smartdns()){
 if (found_app_aliddns() || found_app_ddnspod() || found_app_cloudflare()){
 	ddns_array = new Array("","Advanced_ddns.asp");
 	tablink[16] = (ddns_array);
-}else if (found_app_ddnsto()){
-	ddnsto_array = new Array("","Advanced_ddnsto.asp");
-	tablink[16] = (ddnsto_array);
 }
 if (found_app_frp()){
 	frp_array = new Array("","Advanced_frp.asp");
@@ -648,8 +643,6 @@ if (found_app_smartdns()){
 
 if (found_app_aliddns() || found_app_ddnspod() || found_app_cloudflare()){
 	menuL2_title.push("动态域名");
-} else if (found_app_ddnsto()){
-	menuL2_title.push("<#menu5_30#>");
 } else menuL2_title.push("");
 
 if (found_app_frp()){
@@ -756,8 +749,6 @@ if (found_app_smartdns()){
 } else menuL2_link.push("");
 if (found_app_aliddns() || found_app_ddnspod() || found_app_cloudflare()){
 	menuL2_link.push(ddns_array[1]);
-} else if (found_app_ddnsto()){
-	menuL2_link.push(ddnsto_array[1]);
 } else menuL2_link.push("");
 if (found_app_frp()){
 	menuL2_link.push(frp_array[1]);

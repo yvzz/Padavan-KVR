@@ -92,7 +92,7 @@ if (found_app_adbyby() || found_app_koolproxy()){
 if (found_app_smartdns() || found_app_adguardhome()){
 	showhide_div('row_wpdnsd', true);
 }
-if (found_app_aliddns() || found_app_ddnsto() || found_app_zerotier() || found_app_wireguard()){
+if (found_app_aliddns() || found_app_zerotier() || found_app_wireguard()){
 	showhide_div('row_waliddns', true);
 }
 if (found_app_frp()){
