@@ -205,6 +205,6 @@ logger -t "自动启动" "正在启动cloudflared"
 fi
 
 if [ $(nvram get wireguard_enable) = 1 ] ; then
-logger -t "自动启动" "正在启动wireguard"
+logger -t "自动启动" "正在启动WireGuard"
 /usr/bin/wireguard.sh start &
 fi

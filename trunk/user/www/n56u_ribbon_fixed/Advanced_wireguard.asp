@@ -135,7 +135,7 @@ function done_validating(action){
 
 
 										<td colspan="5"></td><tr>
-										<th width="30%" style="border-top: 0 none;">启用wireguard</th>
+										<th width="30%" style="border-top: 0 none;">启用WireGuard</th>
 											<td style="border-top: 0 none;">
 													<div class="main_itoggle">
 													<div id="wireguard_enable_on_of">
