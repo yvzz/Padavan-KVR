@@ -47,7 +47,6 @@ function initial(){
 }
 
 function showmenu(){
-	showhide_div('allink', found_app_aliddns() || found_app_ddnspod() || found_app_cloudflare());
 	showhide_div('dtolink', found_app_ddnsto());
 	showhide_div('zelink', found_app_zerotier());
 }
@@ -131,9 +130,6 @@ function done_validating(action){
 							<div class="round_bottom">
 							<div>
 							    <ul class="nav nav-tabs" style="margin-bottom: 10px;">
-								<li id="allink" style="display:none">
-								    <a href="Advanced_ddns.asp">DDNS服务</a>
-								</li>
 								<li id="dtolink" style="display:none">
 								    <a href="Advanced_ddnsto.asp"><#menu5_32_2#></a>
 								</li>
